@@ -8,10 +8,11 @@ Given a research question and a local collection of PDF papers, the system will 
 
 ## Planned Agents
 
-- **Coordinator:** Decomposes the research question, assigns tasks, and manages follow-up work.
-- **Researchers:** Investigate different subquestions through local paper retrieval, reading, and analysis.
-- **Synthesizer:** Combines research findings into a structured review and requests missing evidence.
-- **Reviewer:** Checks claims against original passages and reports issues for revision.
+- **Supervisor / Planner** decomposes the research question, assigns tasks, and coordinates follow-up.
+- **Search Agent** retrieves candidate papers and records relevant passages and page numbers.
+- **Analysis Agent** compares evidence, methods, findings, and limitations.
+- **Writing Agent** drafts the structured review with citations.
+- **Verification Agent** checks facts and citations, and routes evidence gaps back to the planner before release.
 
 ## Collaboration
 
@@ -28,7 +29,9 @@ Important claims will link back to specific papers and PDF pages. The final outp
 
 ## Frontend Prototype
 
-Folio is a React, TypeScript, and Vite prototype. It opens with a centered research prompt. Submit a question to see four Agents work through a simulated review, then click a numbered citation to open its evidence panel. The reports, papers, and excerpts use demo data.
+Folio is a React, TypeScript, and Vite prototype. It opens with a centered research prompt. Submit a question to see all five Agents in a shared research office. The simulation covers planning, parallel search, analysis and writing, verification feedback, revision, and a final check. Once the report is ready, click a numbered citation to open its evidence panel. The reports, papers, and excerpts use demo data.
+
+Open **办公室** in the toolbar to view the project office at any time. Select a desk to see the Agent's assignment. Working Agents switch from the idle sprite to a typing animation. The room and sprites load with the office view.
 
 Projects group conversations under a working folder and support multiple knowledge-base paths. Type `@` in the composer to attach an existing conversation from the current project. Project settings and completed demo sessions are saved in the current browser tab. Paths are stored as configuration text for the prototype.
 

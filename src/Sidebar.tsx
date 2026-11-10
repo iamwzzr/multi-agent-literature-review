@@ -14,7 +14,7 @@ export function Sidebar({ projects, projectId, reviews, runningIds, activeReview
   reviews: ReviewRun[]
   runningIds: string[]
   activeReviewId?: string
-  view: 'new' | 'review' | 'library'
+  view: 'new' | 'review' | 'library' | 'office'
   drawer: boolean
   width: number
   onProject: (id: string) => void

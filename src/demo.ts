@@ -25,6 +25,7 @@ export type ReviewRun = {
   title: string
   question: string
   referenceIds?: string[]
+  mockVerified?: true
   evidence: Evidence[]
   sections: ReviewSection[]
 }
@@ -175,12 +176,12 @@ export function createDemoReview(question: string, referenceIds: string[]): Revi
       {
         id: 'summary',
         heading: '综述预览',
-        paragraphs: ['这份固定示例演示如何将研究问题分解成检索任务。研究员按子问题整理候选段落，并把论文页码随研究发现交给撰写员。[[1]][[2]]'],
+        paragraphs: ['在这份固定示例中，统筹规划把问题拆成检索、分析和撰写任务。检索员收集候选段落，分析员整理证据及其限制，撰写员将这些发现归入综述提纲。[[1]][[2]]'],
       },
       {
         id: 'findings',
         heading: '核查预览',
-        paragraphs: ['审阅员用原文逐条核对示例主张。缺少直接证据时，协调员把相关子任务交回研究员补查，再由撰写员修订对应段落。[[3]][[4]]'],
+        paragraphs: ['核查员发现一处引用缺少原文页码，反馈给统筹规划。检索员补齐来源，撰写员修订引用，核查员复核后交付带页码的示例综述。[[3]][[4]]'],
       },
     ],
   }

@@ -1,23 +1,24 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { ArrowUpRight, AtSign, BookOpen, Check, ChevronDown, Workflow } from 'lucide-react'
-import { agents } from './Agents'
 import { demoReviews } from './demo'
 import type { ReviewRun } from './demo'
+import { ResearchOffice } from './Office'
+import { agents } from './workflow'
+import type { RunPhase } from './workflow'
 
-export function Review({ review, linkedReviews, runningStep, activeCitation, onCitation, onConversation }: {
+export function Review({ review, linkedReviews, runningPhase, activeCitation, onCitation, onConversation }: {
   review: ReviewRun
   linkedReviews: ReviewRun[]
-  runningStep?: number
+  runningPhase?: RunPhase
   activeCitation?: number
   onCitation: (index: number, trigger: HTMLButtonElement) => void
   onConversation: (id: string) => void
 }) {
   const [workflowOpen, setWorkflowOpen] = useState(true)
-  const running = runningStep !== undefined
 
   return (
-    <article className="review-page reading-width" aria-labelledby="review-title">
+    <article className={runningPhase ? 'review-page office-run-page office-width' : 'review-page reading-width'} aria-labelledby="review-title">
       <header className="review-header">
         <div className="eyebrow"><BookOpen size={14} /> 文献综述 <span className="eyebrow-divider" /> 示例会话</div>
         <h1 id="review-title" tabIndex={-1}>{review.title}</h1>
@@ -38,53 +39,54 @@ export function Review({ review, linkedReviews, runningStep, activeCitation, onC
         )}
       </header>
 
-      <section className="workflow" aria-label="Agent 协作流程">
-        <button className="workflow-toggle" type="button" aria-expanded={workflowOpen} aria-controls="workflow-steps" onClick={() => setWorkflowOpen((open) => !open)}>
-          <span className="workflow-icon"><Workflow size={17} /></span>
-          <span className="workflow-label">Agent 协作流程<small>4 个角色</small></span>
-          <span className="workflow-status">{running ? '模拟运行中' : <><Check size={14} /> 已完成</>}</span>
-          <ChevronDown className="workflow-chevron" size={15} />
-        </button>
-        <ol className="workflow-steps" id="workflow-steps" hidden={!workflowOpen}>
-          {agents.map(({ id, name, task, icon: Icon }, index) => (
-            <li key={id} aria-current={runningStep === index ? 'step' : undefined}>
-              <Icon className="step-icon" size={15} />
-              <span><strong>{name}</strong><small>{task}</small></span>
-            </li>
-          ))}
-        </ol>
-      </section>
-
-      {running ? <p className="run-placeholder">示例综述会在四个 Agent 完成工作后显示。</p> : (
-        <div className="review-text">
-          {review.sections.map((section) => (
-            <section className="review-section" key={section.id}>
-              <h2 id={section.id} tabIndex={-1}>{section.heading}</h2>
-              {section.paragraphs.map((paragraph) => (
-                <p key={paragraph}>
-                  {paragraph.split(/(\[\[\d+\]\])/).map((part, index) => {
-                    const match = /^\[\[(\d+)\]\]$/.exec(part)
-                    const citation = match ? Number(match[1]) - 1 : -1
-                    return review.evidence[citation] ? (
-                      <button
-                        className="inline-citation"
-                        type="button"
-                        key={index}
-                        aria-label={'查看引用 ' + (citation + 1)}
-                        aria-expanded={activeCitation === citation}
-                        aria-controls={activeCitation === citation ? 'evidence-inspector' : undefined}
-                        data-selected={activeCitation === citation}
-                        onClick={(event) => onCitation(citation, event.currentTarget)}
-                      >
-                        {citation + 1}
-                      </button>
-                    ) : part
-                  })}
-                </p>
+      {runningPhase ? <ResearchOffice phase={runningPhase} /> : (
+        <>
+          <section className="workflow" aria-label="Agent 协作流程">
+            <button className="workflow-toggle" type="button" aria-expanded={workflowOpen} aria-controls="workflow-steps" onClick={() => setWorkflowOpen((open) => !open)}>
+              <span className="workflow-icon"><Workflow size={17} /></span>
+              <span className="workflow-label">Agent 协作流程<small>{agents.length} 个角色</small></span>
+              <span className="workflow-status">{review.mockVerified ? <><Check size={14} /> 模拟复核完成</> : '流程示例'}</span>
+              <ChevronDown className="workflow-chevron" size={15} />
+            </button>
+            <ol className="workflow-steps" id="workflow-steps" hidden={!workflowOpen}>
+              {agents.map(({ id, name, task, icon: Icon }) => (
+                <li key={id}>
+                  <Icon className="step-icon" size={15} />
+                  <span><strong>{name}</strong><small>{task}</small></span>
+                </li>
               ))}
-            </section>
-          ))}
-        </div>
+            </ol>
+          </section>
+          <div className="review-text">
+            {review.sections.map((section) => (
+              <section className="review-section" key={section.id}>
+                <h2 id={section.id} tabIndex={-1}>{section.heading}</h2>
+                {section.paragraphs.map((paragraph) => (
+                  <p key={paragraph}>
+                    {paragraph.split(/(\[\[\d+\]\])/).map((part, index) => {
+                      const match = /^\[\[(\d+)\]\]$/.exec(part)
+                      const citation = match ? Number(match[1]) - 1 : -1
+                      return review.evidence[citation] ? (
+                        <button
+                          className="inline-citation"
+                          type="button"
+                          key={index}
+                          aria-label={'查看引用 ' + (citation + 1)}
+                          aria-expanded={activeCitation === citation}
+                          aria-controls={activeCitation === citation ? 'evidence-inspector' : undefined}
+                          data-selected={activeCitation === citation}
+                          onClick={(event) => onCitation(citation, event.currentTarget)}
+                        >
+                          {citation + 1}
+                        </button>
+                      ) : part
+                    })}
+                  </p>
+                ))}
+              </section>
+            ))}
+          </div>
+        </>
       )}
     </article>
   )

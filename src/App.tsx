@@ -1,21 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronRight, PanelLeft } from 'lucide-react'
-import { AgentActivity, agents } from './Agents'
+import { Building2, ChevronRight, PanelLeft } from 'lucide-react'
 import { Composer } from './Composer'
 import { createDemoReview } from './demo'
 import type { Evidence, ReviewRun } from './demo'
 import { EvidenceInspector, Library, PagePreview } from './Evidence'
 import type { InspectorTab } from './Evidence'
+import { ResearchOffice } from './Office'
 import { readWorkspace, saveWorkspace } from './projects'
 import type { ProjectConfig } from './projects'
 import { NewReview, Review } from './Review'
 import { AppearanceSettings, ProjectSettings } from './Settings'
 import { Sidebar } from './Sidebar'
 import { useMediaQuery } from './useMediaQuery'
+import { reviewPhases } from './workflow'
 
-type View = { kind: 'review'; id: string } | { kind: 'new' } | { kind: 'library' }
-type PendingRun = { projectId: string; review: ReviewRun; step: number }
-const stepDuration = 1800
+type View = { kind: 'review'; id: string } | { kind: 'new' | 'library' | 'office' }
+type PendingRun = { projectId: string; review: ReviewRun; phase: number }
 
 export function App() {
   const sidebarInline = useMediaQuery('(width > 820px)')
@@ -41,14 +41,16 @@ export function App() {
   const project = workspace.projects.find(({ id }) => id === workspace.activeProjectId) ?? workspace.projects[0]
   const projectRuns = runs.filter((run) => run.projectId === project.id)
   const activeRun = view.kind === 'review' ? projectRuns.find((run) => run.review.id === view.id) : undefined
+  const officeRun = view.kind === 'office' ? projectRuns.at(-1) : undefined
   const activeReview = view.kind === 'review'
     ? activeRun?.review ?? project.reviews.find((review) => review.id === view.id)
     : undefined
   const linkedReviews = project.reviews.filter((review) => activeReview?.referenceIds?.includes(review.id))
-  const title = activeReview?.title ?? (view.kind === 'library' ? '知识库' : '新建综述')
+  const title = activeReview?.title ?? (view.kind === 'library' ? '知识库' : view.kind === 'office' ? '研究办公室' : '新建综述')
   const sidebarDrawer = sidebarOpen && !sidebarInline
   const inspectorDrawer = citation !== null && !inspectorInline
   const viewKey = project.id + '/' + (activeReview?.id ?? view.kind)
+  const showingRun = Boolean(activeRun)
 
   useEffect(() => {
     saveWorkspace(workspace)
@@ -61,7 +63,7 @@ export function App() {
 
   useEffect(() => {
     if (scrollPane.current) scrollPane.current.scrollTop = 0
-  }, [viewKey])
+  }, [viewKey, showingRun])
 
   function navigate(next: View) {
     setView(next)
@@ -114,27 +116,29 @@ export function App() {
     const review = createDemoReview(value, referenceIds)
     const projectId = project.id
 
-    setRuns((previous) => [...previous, { projectId, review, step: 0 }])
+    setRuns((previous) => [...previous, { projectId, review, phase: 0 }])
     clearDraft()
     navigate({ kind: 'review', id: review.id })
     requestAnimationFrame(() => document.getElementById('review-title')?.focus({ preventScroll: true }))
 
-    agents.forEach((_, index) => {
-      const step = index + 1
+    let elapsed = 0
+    reviewPhases.forEach(({ duration }, index) => {
+      elapsed += duration
+      const nextPhase = index + 1
       const timer = window.setTimeout(() => {
         timers.current.delete(timer)
-        if (step === agents.length) {
+        if (nextPhase === reviewPhases.length) {
           setWorkspace((previous) => ({
             ...previous,
             projects: previous.projects.map((entry) => (
-              entry.id === projectId ? { ...entry, reviews: [review, ...entry.reviews] } : entry
+              entry.id === projectId ? { ...entry, reviews: [{ ...review, mockVerified: true }, ...entry.reviews] } : entry
             )),
           }))
           setRuns((previous) => previous.filter((run) => run.review.id !== review.id))
         } else {
-          setRuns((previous) => previous.map((run) => run.review.id === review.id ? { ...run, step } : run))
+          setRuns((previous) => previous.map((run) => run.review.id === review.id ? { ...run, phase: nextPhase } : run))
         }
-      }, step * stepDuration)
+      }, elapsed)
       timers.current.add(timer)
     })
   }
@@ -227,10 +231,15 @@ export function App() {
               <span className="breadcrumb-title" title={title}>{title}</span>
             </div>
           </div>
-          <span className="demo-badge"><span /> 原型预览</span>
+          <div className="toolbar-actions">
+            <button className="context-button office-entry" type="button" aria-current={view.kind === 'office' ? 'page' : undefined} onClick={() => navigate({ kind: 'office' })}>
+              <Building2 size={15} /> 办公室
+            </button>
+            <span className="demo-badge"><span /> 原型预览</span>
+          </div>
         </header>
 
-        <div className={activeRun ? 'workspace-body workspace-running' : 'workspace-body'}>
+        <div className="workspace-body">
           <div className="workbench" inert={inspectorDrawer}>
             <main className={view.kind === 'new' ? 'reader reader-start' : 'reader'} id="work-area" ref={scrollPane} tabIndex={-1}>
               {activeReview && (
@@ -238,7 +247,7 @@ export function App() {
                   key={activeReview.id}
                   review={activeReview}
                   linkedReviews={linkedReviews}
-                  runningStep={activeRun?.step}
+                  runningPhase={activeRun ? reviewPhases[activeRun.phase] : undefined}
                   activeCitation={inspectorTab === 'citations' ? citation ?? undefined : undefined}
                   onCitation={showCitation}
                   onConversation={openReview}
@@ -253,10 +262,18 @@ export function App() {
                 </NewReview>
               )}
               {view.kind === 'library' && <Library project={project} onConfigure={() => setProjectForm('edit')} onPreview={setPreview} />}
+              {view.kind === 'office' && (
+                <div className="office-route office-width">
+                  <ResearchOffice
+                    key={officeRun?.review.id ?? 'waiting'}
+                    phase={officeRun ? reviewPhases[officeRun.phase] : undefined}
+                    onOpenRun={officeRun ? () => openReview(officeRun.review.id) : undefined}
+                  />
+                </div>
+              )}
             </main>
-            {activeReview && composer}
+            {(activeReview || view.kind === 'office') && composer}
           </div>
-          {activeRun && <AgentActivity step={activeRun.step} />}
           {activeReview && !activeRun && citation !== null && (
             <>
               <button className="inspector-scrim" type="button" tabIndex={-1} aria-label="关闭证据面板" onClick={closeInspector} />
