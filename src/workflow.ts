@@ -20,7 +20,7 @@ export type RunPhase = {
   taskDetails?: Partial<Record<AgentId, string>>
 }
 
-export const reviewPhases: RunPhase[] = [
+const reviewPhases: RunPhase[] = [
   {
     title: '规划任务',
     summary: '统筹规划收到研究问题，正在安排三个研究工位。',
@@ -74,3 +74,8 @@ export const reviewPhases: RunPhase[] = [
     taskDetails: { verification: '核对补齐的页码和修订后的主张，准备交付。' },
   },
 ]
+
+export const reviewFlows = {
+  direct: reviewPhases.slice(0, 3),
+  revision: reviewPhases,
+}

@@ -26,6 +26,7 @@ export type ReviewRun = {
   question: string
   referenceIds?: string[]
   mockVerified?: true
+  mockFlow?: 'direct'
   evidence: Evidence[]
   sections: ReviewSection[]
 }
@@ -93,6 +94,112 @@ const demoEvidence: Evidence[] = [
   },
 ]
 
+const extendedEvidence: Evidence[] = [
+  ...demoEvidence,
+  {
+    paper: { id: 'eligibility', title: 'Eligibility Decisions in a Small Research Corpus', author: 'Xu 等', year: 2024, pages: 18, summary: '示例包含去重、纳入标准和排除理由。' },
+    page: 1,
+    excerpt: '先记录论文的纳入标准与排除理由，再比较不同检索任务得到的结果。',
+    context: '示例把时间范围、文献类型和主题相关性分成三项纳入标准。重复版本只保留一份，并记下合并依据。',
+  },
+  {
+    paper: { id: 'cross-page', title: 'Preserving Context Across PDF Page Boundaries', author: 'Liu 等', year: 2025, pages: 31, summary: '演示跨页段落、双栏排版和原文定位。' },
+    page: 27,
+    excerpt: '跨页证据需要同时保留前一页的限定条件和后一页的结果描述。',
+    context: '本例将跨页段落拆成相邻的两个引文，并保留论文内的章节名称。核查时可以分别打开这两页。',
+  },
+  {
+    paper: { id: 'matrix', title: 'An Evidence Matrix for Comparing Research Methods', author: 'He 等', year: 2025, pages: 44, summary: '演示如何按方法、样本和限制横向比较研究。' },
+    page: 14,
+    excerpt: '证据矩阵应同时保存研究设计、样本规模、指标定义与结论适用范围。',
+    context: '示例矩阵以论文为行、观察项为列。发现度量口径不同时，先解释差异，再决定能否归纳到同一结论。',
+  },
+  {
+    paper: { id: 'disagreement', title: 'Reporting Conflicting Findings in Evidence Synthesis', author: 'Yao 等', year: 2025, pages: 61, summary: '演示怎样呈现相反发现和缺少证据的主题。' },
+    page: 45,
+    excerpt: '结果互相矛盾时，应先比较研究条件和指标，再说明证据在哪些场景仍不一致。',
+    context: '示例两组研究在样本和评价口径上有差异。综述保留双方原结论，并给出可以逐项核对的比较维度。',
+  },
+  {
+    paper: { id: 'revision-log', title: 'Tracking Claim-Level Revisions Across Multi-Agent Literature Review Pipelines with Incomplete Evidence', author: 'Guo 等', year: 2026, pages: 76, summary: '长标题样例，包含修改记录和多位数页码。' },
+    page: 62,
+    excerpt: '保留修订前后的主张以及新增的引用，便于复核员比较调整依据。',
+    context: '示例修订记录使用主张编号串联旧版本、核查意见和新版本。每项变更都对应一处来源或一条范围限制。',
+  },
+  {
+    paper: { id: 'evaluation', title: 'A Reproducibility Checklist for Assisted Literature Reviews', author: 'Tang 等', year: 2026, pages: 128, summary: '综合评估样例，包含三位数页码和可复现检查清单。' },
+    page: 120,
+    excerpt: '交付前逐项检查检索范围、引用定位和复核记录，保证读者能复现关键判断。',
+    context: '示例附录列出最小复核清单，包括检索词、排除规则、来源页码和未解决问题。清单中的每条记录都能独立回到原文。',
+  },
+]
+
+const longReview: ReviewRun = {
+  id: 'extended-review',
+  title: '多智能体学术综述的证据覆盖、可复核性与引用核查方法',
+  question: '如何评估多智能体文献综述从检索覆盖到引用复核的完整流程？',
+  referenceIds: ['collaboration', 'retrieval'],
+  mockFlow: 'direct',
+  evidence: extendedEvidence,
+  sections: [
+    {
+      id: 'summary', heading: '综述摘要',
+      paragraphs: [
+        '这篇长报告使用模拟材料，演示一份可追溯的文献综述如何组织检索、分析、撰写和核查。研究问题拆解后，每一项结论都沿着证据记录回到原文页码。[[1]][[10]]',
+        '示例采用两层核查。先检查引用能否定位，再比较来源是否支持主张的范围和强度。核查记录随报告一起保存，便于从提纲或引用索引返回需要复核的段落。[[3]][[9]]',
+      ],
+    },
+    {
+      id: 'scope', heading: '研究范围与纳入标准',
+      paragraphs: [
+        '示例把研究范围分成检索覆盖、证据组织和引用准确性三个部分。每个子问题使用一致的时间范围和文献类型限制，并记录题目相近但主题不同的排除理由。[[5]]',
+        '多份版本指向同一研究时，保留最完整的版本供核查。需要对照的段落仍记录原始文件标识和页码，以免引用在版本切换后失去定位。[[1]][[6]]',
+      ],
+    },
+    {
+      id: 'search', heading: '检索策略与候选文献',
+      paragraphs: [
+        '检索工位按子问题生成候选词，再用方法名称、任务目标和研究场景补充召回。命中较少的主题单独登记，后续可调整关键词或加入可比较的同义术语。[[2]]',
+        '初筛时同时保留摘要和正文的位置。遇到跨页的证据段，示例记录相邻页并注明阅读顺序，以便复核员打开原文后看到完整上下文。[[6]]',
+      ],
+    },
+    {
+      id: 'analysis', heading: '证据矩阵与论文分析',
+      paragraphs: [
+        '分析工位把样本、研究设计、指标和结论限制放进证据矩阵。相同的结果名称有时对应不同的测量方式，示例要求在归类前先核对各论文对指标的定义。[[7]]',
+        '比较条件不一致的研究时，先陈述可复核的观察，再说明综合推断。对于只有单篇论文支持的发现，综述保留该论文的适用边界。[[3]][[8]]',
+      ],
+    },
+    {
+      id: 'synthesis', heading: '综合发现与分歧',
+      paragraphs: [
+        '撰写工位按子问题整理共同发现，也保留证据分歧。示例把结论的差异与研究对象、评估口径和实验条件并列呈现，读者可以回到来源判断差异是否足以解释结果。[[7]][[8]]',
+        '对覆盖不足的主题，报告列出缺少的资料类型和下一步检索方向。规划工位可以据此分派局部补查，其他已完成的章节仍可独立复核。[[4]]',
+      ],
+    },
+    {
+      id: 'citation-audit', heading: '引用核查与修订记录',
+      paragraphs: [
+        '核查工位逐项对照综述主张、引用编号和原文摘录，确认页码落在正确文件中。能定位的引用还要检查它支持的是整个主张，还是仅支持其中一个限定条件。[[1]][[3]]',
+        '修改报告时，每一条修订保留旧主张、补入证据和新版本。示例附上修订页和复核清单，便于核对较长的英文论文标题和三位数页码。[[9]][[10]]',
+      ],
+    },
+    {
+      id: 'limitations', heading: '局限与后续验证',
+      paragraphs: [
+        '这份示例只覆盖小型论文集合。进一步验证时需要更换检索任务、论文版式和证据分歧程度，分别记录定位错误、范围不一致和无法找到原文的情况。[[6]][[8]]',
+        '评价可以分别统计检索覆盖率和引用核查正确率。把两者分开记录，有助于判断问题来自找不到文献、读错上下文，还是最终表述超出了证据范围。[[2]][[10]]',
+      ],
+    },
+    {
+      id: 'checklist', heading: '交付前复核清单',
+      paragraphs: [
+        '逐项确认每个子问题都有明确的检索范围，主要结论都能打开来源页，跨页证据保留阅读顺序，修订记录可回溯。最后标记尚需补查的内容，方便后续会话继续复核。[[5]][[6]][[9]][[10]]',
+      ],
+    },
+  ],
+}
+
 export const demoReviews: ReviewRun[] = [
   {
     id: 'collaboration',
@@ -127,6 +234,7 @@ export const demoReviews: ReviewRun[] = [
     id: 'retrieval',
     title: '长文档检索与证据定位',
     question: '从一组本地论文中检索时，怎样让找到的证据能准确回到原文？',
+    mockFlow: 'direct',
     evidence: [demoEvidence[1], demoEvidence[0]],
     sections: [
       {
@@ -159,7 +267,24 @@ export const demoReviews: ReviewRun[] = [
       },
     ],
   },
+  longReview,
+  {
+    id: 'evidence-gap',
+    title: '证据不足时的待核查清单',
+    question: '当资料缺少可定位的原文时，综述如何呈现证据缺口？',
+    evidence: [],
+    sections: [
+      { id: 'summary', heading: '当前证据状态', paragraphs: ['这个样例模拟尚未找到可定位原文的报告。待验证项包括候选论文、需要查找的章节和可能缺失的原文页码。'] },
+      { id: 'gaps', heading: '待补充资料', paragraphs: ['补查目标包括候选论文的全文版本、具体结果段和研究条件。新资料可作为后续会话的核查对象。'] },
+    ],
+  },
 ]
+
+export const testPrompts = [
+  { id: 'retrieval', label: '一次核查通过', detail: '并行研究后直接交付' },
+  { id: 'collaboration', label: '退回补查', detail: '缺页码、修订与复核' },
+  { id: 'extended-review', label: '长报告与引用', detail: `${longReview.sections.length} 节 · ${longReview.evidence.length} 条引用` },
+].map((sample) => ({ ...sample, question: demoReviews.find(({ id }) => id === sample.id)!.question }))
 
 export function createDemoReview(question: string, referenceIds: string[]): ReviewRun {
   const id = crypto.randomUUID()

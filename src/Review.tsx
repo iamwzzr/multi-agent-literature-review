@@ -1,21 +1,25 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { ArrowUpRight, AtSign, BookOpen, Check, ChevronDown, Workflow } from 'lucide-react'
-import { demoReviews } from './demo'
+import { ArrowUpRight, AtSign, BookOpen, Check, ChevronDown, FlaskConical, Workflow } from 'lucide-react'
+import { testPrompts } from './demo'
 import type { ReviewRun } from './demo'
 import { ResearchOffice } from './Office'
 import { agents } from './workflow'
 import type { RunPhase } from './workflow'
 
-export function Review({ review, linkedReviews, runningPhase, activeCitation, onCitation, onConversation }: {
+export function Review({ review, linkedReviews, runningPhase, responding, activeCitation, onCitation, onConversation }: {
   review: ReviewRun
   linkedReviews: ReviewRun[]
   runningPhase?: RunPhase
+  responding: boolean
   activeCitation?: number
   onCitation: (index: number, trigger: HTMLButtonElement) => void
   onConversation: (id: string) => void
 }) {
   const [workflowOpen, setWorkflowOpen] = useState(true)
+  let workflowStatus = '流程示例'
+  if (responding) workflowStatus = '流式响应中'
+  else if (review.mockVerified) workflowStatus = review.mockFlow === 'direct' ? '模拟核查通过' : '模拟复核完成'
 
   return (
     <article className={runningPhase ? 'review-page office-run-page office-width' : 'review-page reading-width'} aria-labelledby="review-title">
@@ -45,7 +49,7 @@ export function Review({ review, linkedReviews, runningPhase, activeCitation, on
             <button className="workflow-toggle" type="button" aria-expanded={workflowOpen} aria-controls="workflow-steps" onClick={() => setWorkflowOpen((open) => !open)}>
               <span className="workflow-icon"><Workflow size={17} /></span>
               <span className="workflow-label">Agent 协作流程<small>{agents.length} 个角色</small></span>
-              <span className="workflow-status">{review.mockVerified ? <><Check size={14} /> 模拟复核完成</> : '流程示例'}</span>
+              <span className="workflow-status">{review.mockVerified && <Check size={14} />}{workflowStatus}</span>
               <ChevronDown className="workflow-chevron" size={15} />
             </button>
             <ol className="workflow-steps" id="workflow-steps" hidden={!workflowOpen}>
@@ -58,11 +62,16 @@ export function Review({ review, linkedReviews, runningPhase, activeCitation, on
             </ol>
           </section>
           <div className="review-text">
+            {responding && (
+              <p className="response-status" role="status">
+                <span aria-hidden="true" /> {review.sections.length > 0 ? '正在接收综述片段…' : '等待首段响应…'}
+              </p>
+            )}
             {review.sections.map((section) => (
               <section className="review-section" key={section.id}>
                 <h2 id={section.id} tabIndex={-1}>{section.heading}</h2>
-                {section.paragraphs.map((paragraph) => (
-                  <p key={paragraph}>
+                {section.paragraphs.map((paragraph, paragraphIndex) => (
+                  <p key={paragraphIndex}>
                     {paragraph.split(/(\[\[\d+\]\])/).map((part, index) => {
                       const match = /^\[\[(\d+)\]\]$/.exec(part)
                       const citation = match ? Number(match[1]) - 1 : -1
@@ -92,7 +101,7 @@ export function Review({ review, linkedReviews, runningPhase, activeCitation, on
   )
 }
 
-export function NewReview({ children, onPrompt }: { children: ReactNode; onPrompt: (question: string) => void }) {
+export function NewReview({ children, question, onPrompt }: { children: ReactNode; question: string; onPrompt: (question: string) => void }) {
   return (
     <section className="new-review-page reading-width" aria-labelledby="new-title">
       <div className="new-review-intro">
@@ -100,13 +109,19 @@ export function NewReview({ children, onPrompt }: { children: ReactNode; onPromp
         <p>从一个研究问题开始，整理文献、综述与引用证据。</p>
       </div>
       {children}
-      <div className="prompt-suggestions" role="group" aria-label="示例研究问题">
-        {demoReviews.map((review) => (
-          <button type="button" key={review.id} title={review.question} onClick={() => onPrompt(review.question)}>
-            <span>{review.title}</span><ArrowUpRight size={13} />
-          </button>
-        ))}
-      </div>
+      <section className="test-samples" aria-labelledby="test-samples-title">
+        <div className="test-samples-heading">
+          <h2 id="test-samples-title"><FlaskConical size={14} /> 测试样例</h2>
+          <span>点选后按 Enter 运行</span>
+        </div>
+        <div className="prompt-suggestions">
+          {testPrompts.map((sample) => (
+            <button type="button" key={sample.id} title={sample.question} aria-pressed={question.trim() === sample.question} onClick={() => onPrompt(sample.question)}>
+              <span><strong>{sample.label}</strong><small>{sample.detail}</small></span><ArrowUpRight size={14} />
+            </button>
+          ))}
+        </div>
+      </section>
     </section>
   )
 }

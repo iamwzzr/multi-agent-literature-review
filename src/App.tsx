@@ -8,14 +8,17 @@ import type { InspectorTab } from './Evidence'
 import { ResearchOffice } from './Office'
 import { readWorkspace, saveWorkspace } from './projects'
 import type { ProjectConfig } from './projects'
+import { reportLength, revealSections } from './response'
 import { NewReview, Review } from './Review'
 import { AppearanceSettings, ProjectSettings } from './Settings'
 import { Sidebar } from './Sidebar'
 import { useMediaQuery } from './useMediaQuery'
-import { reviewPhases } from './workflow'
+import { reviewFlows } from './workflow'
 
 type View = { kind: 'review'; id: string } | { kind: 'new' | 'library' | 'office' }
-type PendingRun = { projectId: string; review: ReviewRun; phase: number }
+type PendingRun = { projectId: string; review: ReviewRun } & (
+  { kind: 'office'; phase: number } | { kind: 'response'; visibleLength: number }
+)
 
 export function App() {
   const sidebarInline = useMediaQuery('(width > 820px)')
@@ -42,15 +45,22 @@ export function App() {
   const projectRuns = runs.filter((run) => run.projectId === project.id)
   const activeRun = view.kind === 'review' ? projectRuns.find((run) => run.review.id === view.id) : undefined
   const officeRun = view.kind === 'office' ? projectRuns.at(-1) : undefined
+  const currentRun = activeRun ?? officeRun
+  const currentPhase = currentRun?.kind === 'office'
+    ? reviewFlows[currentRun.review.mockFlow ?? 'revision'][currentRun.phase]
+    : undefined
   const activeReview = view.kind === 'review'
     ? activeRun?.review ?? project.reviews.find((review) => review.id === view.id)
     : undefined
+  const displayReview = activeRun?.kind === 'response' && activeReview
+    ? { ...activeReview, sections: revealSections(activeReview.sections, activeRun.visibleLength) }
+    : activeReview
   const linkedReviews = project.reviews.filter((review) => activeReview?.referenceIds?.includes(review.id))
   const title = activeReview?.title ?? (view.kind === 'library' ? '知识库' : view.kind === 'office' ? '研究办公室' : '新建综述')
   const sidebarDrawer = sidebarOpen && !sidebarInline
   const inspectorDrawer = citation !== null && !inspectorInline
   const viewKey = project.id + '/' + (activeReview?.id ?? view.kind)
-  const showingRun = Boolean(activeRun)
+  const showingOffice = activeRun?.kind === 'office'
 
   useEffect(() => {
     saveWorkspace(workspace)
@@ -63,7 +73,7 @@ export function App() {
 
   useEffect(() => {
     if (scrollPane.current) scrollPane.current.scrollTop = 0
-  }, [viewKey, showingRun])
+  }, [viewKey, showingOffice])
 
   function navigate(next: View) {
     setView(next)
@@ -110,36 +120,67 @@ export function App() {
     setProjectForm(null)
   }
 
+  function schedule(callback: () => void, delay: number) {
+    const timer = window.setTimeout(() => {
+      timers.current.delete(timer)
+      callback()
+    }, delay)
+    timers.current.add(timer)
+  }
+
+  function streamResponse(projectId: string, review: ReviewRun) {
+    const length = reportLength(review.sections)
+    const chunkSize = Math.max(6, Math.ceil(length / 68))
+    setRuns((previous) => previous.map((run) => (
+      run.review.id === review.id ? { projectId, review, kind: 'response', visibleLength: 0 } : run
+    )))
+
+    function reveal(visibleLength: number) {
+      if (visibleLength >= length) {
+        setWorkspace((previous) => ({
+          ...previous,
+          projects: previous.projects.map((entry) => (
+            entry.id === projectId ? { ...entry, reviews: [{ ...review, mockVerified: true }, ...entry.reviews] } : entry
+          )),
+        }))
+        setRuns((previous) => previous.filter((run) => run.review.id !== review.id))
+        return
+      }
+
+      setRuns((previous) => previous.map((run) => (
+        run.review.id === review.id && run.kind === 'response' ? { ...run, visibleLength } : run
+      )))
+      schedule(() => reveal(visibleLength + chunkSize), 90)
+    }
+
+    schedule(() => reveal(chunkSize), 600)
+  }
+
   function submitQuestion() {
     const value = question.trim()
     if (!value) return
     const review = createDemoReview(value, referenceIds)
     const projectId = project.id
+    const phases = reviewFlows[review.mockFlow ?? 'revision']
 
-    setRuns((previous) => [...previous, { projectId, review, phase: 0 }])
+    setRuns((previous) => [...previous, { projectId, review, kind: 'office', phase: 0 }])
     clearDraft()
     navigate({ kind: 'review', id: review.id })
     requestAnimationFrame(() => document.getElementById('review-title')?.focus({ preventScroll: true }))
 
     let elapsed = 0
-    reviewPhases.forEach(({ duration }, index) => {
+    phases.forEach(({ duration }, index) => {
       elapsed += duration
       const nextPhase = index + 1
-      const timer = window.setTimeout(() => {
-        timers.current.delete(timer)
-        if (nextPhase === reviewPhases.length) {
-          setWorkspace((previous) => ({
-            ...previous,
-            projects: previous.projects.map((entry) => (
-              entry.id === projectId ? { ...entry, reviews: [{ ...review, mockVerified: true }, ...entry.reviews] } : entry
-            )),
-          }))
-          setRuns((previous) => previous.filter((run) => run.review.id !== review.id))
+      schedule(() => {
+        if (nextPhase === phases.length) {
+          streamResponse(projectId, review)
         } else {
-          setRuns((previous) => previous.map((run) => run.review.id === review.id ? { ...run, phase: nextPhase } : run))
+          setRuns((previous) => previous.map((run) => (
+            run.review.id === review.id && run.kind === 'office' ? { ...run, phase: nextPhase } : run
+          )))
         }
       }, elapsed)
-      timers.current.add(timer)
     })
   }
 
@@ -242,19 +283,20 @@ export function App() {
         <div className="workspace-body">
           <div className="workbench" inert={inspectorDrawer}>
             <main className={view.kind === 'new' ? 'reader reader-start' : 'reader'} id="work-area" ref={scrollPane} tabIndex={-1}>
-              {activeReview && (
+              {displayReview && (
                 <Review
-                  key={activeReview.id}
-                  review={activeReview}
+                  key={displayReview.id}
+                  review={displayReview}
                   linkedReviews={linkedReviews}
-                  runningPhase={activeRun ? reviewPhases[activeRun.phase] : undefined}
+                  runningPhase={currentPhase}
+                  responding={activeRun?.kind === 'response'}
                   activeCitation={inspectorTab === 'citations' ? citation ?? undefined : undefined}
                   onCitation={showCitation}
                   onConversation={openReview}
                 />
               )}
               {view.kind === 'new' && (
-                <NewReview onPrompt={(prompt) => {
+                <NewReview question={question} onPrompt={(prompt) => {
                   setQuestion(prompt)
                   input.current?.focus()
                 }}>
@@ -266,7 +308,7 @@ export function App() {
                 <div className="office-route office-width">
                   <ResearchOffice
                     key={officeRun?.review.id ?? 'waiting'}
-                    phase={officeRun ? reviewPhases[officeRun.phase] : undefined}
+                    phase={currentPhase}
                     onOpenRun={officeRun ? () => openReview(officeRun.review.id) : undefined}
                   />
                 </div>
@@ -274,11 +316,11 @@ export function App() {
             </main>
             {(activeReview || view.kind === 'office') && composer}
           </div>
-          {activeReview && !activeRun && citation !== null && (
+          {displayReview && !showingOffice && citation !== null && (
             <>
               <button className="inspector-scrim" type="button" tabIndex={-1} aria-label="关闭证据面板" onClick={closeInspector} />
               <EvidenceInspector
-                review={activeReview}
+                review={displayReview}
                 citation={citation}
                 tab={inspectorTab}
                 drawer={inspectorDrawer}

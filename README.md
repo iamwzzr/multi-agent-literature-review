@@ -29,7 +29,7 @@ Important claims will link back to specific papers and PDF pages. The final outp
 
 ## Frontend Prototype
 
-Folio is a React, TypeScript, and Vite prototype. It opens with a centered research prompt. Submit a question to see all five Agents in a shared research office. The simulation covers planning, parallel search, analysis and writing, verification feedback, revision, and a final check. Once the report is ready, click a numbered citation to open its evidence panel. The reports, papers, and excerpts use demo data.
+Folio is a React, TypeScript, and Vite prototype. It opens with a centered research prompt. Submit a question to see all five Agents in a shared research office. After the simulated verification, the interface waits for the first response chunk, then streams the report a piece at a time. Click a visible numbered citation to open its evidence panel. The reports, papers, and excerpts use demo data.
 
 Open **办公室** in the toolbar to view the project office at any time. Select a desk to see the Agent's assignment. Working Agents switch from the idle sprite to a typing animation. The room and sprites load with the office view.
 
@@ -45,3 +45,10 @@ npm run dev
 `npm run build` checks TypeScript and writes the static frontend to `dist/`. `npm run preview` serves that build locally. The web app manifest lets supported browsers install the workspace in a standalone window when served from localhost or HTTPS.
 
 Drag the sidebar divider to resize it, or use the toolbar button to hide and show it. **设置** in the lower-left corner lets you choose Light, Dark, or System appearance. Light is the default, and the browser remembers your choice. [Apple's macOS design guide](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos) · [Split views](https://developer.apple.com/design/human-interface-guidelines/split-views) · [Materials](https://developer.apple.com/design/human-interface-guidelines/materials)
+
+### Manual frontend checks
+
+- Pick **一次核查通过** below the prompt and press Enter. Watch the three parallel desks, the first-response wait, and the streamed report.
+- Pick **退回补查** to see verification return to the planner, two desks revise their work, and the report stream after rechecking.
+- Pick **长报告与引用**, or open the saved long report under **文献综述研究**. Check the outline jump, citation 10 on page 120, and the sample-page dialog.
+- Open **证据不足时的待核查清单** under **引用核查实验** to see an uncited sample. Switch to **空白测试项目** for the empty knowledge library and empty `@` results.
