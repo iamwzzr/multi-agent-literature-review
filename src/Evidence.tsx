@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
-import { ArrowUpRight, BookOpen, ChevronRight, FileText, Link2, List, Quote, X } from 'lucide-react'
-import { demoEvidence } from './demo'
+import { ArrowUpRight, BookOpen, ChevronRight, FileText, Folder, Link2, List, Quote, SlidersHorizontal, X } from 'lucide-react'
 import type { Evidence, ReviewRun } from './demo'
+import type { Project } from './projects'
 
 export type InspectorTab = 'citations' | 'outline'
 
@@ -114,27 +114,49 @@ export function EvidenceInspector({ review, citation, tab, drawer, onTab, onCita
   )
 }
 
-export function Library({ onPreview }: { onPreview: (evidence: Evidence) => void }) {
+export function Library({ project, onConfigure, onPreview }: {
+  project: Project
+  onConfigure: () => void
+  onPreview: (evidence: Evidence) => void
+}) {
+  const evidenceList = [...new Map(project.reviews.flatMap((review) => review.evidence.map((evidence) => [evidence.paper.id, evidence] as const))).values()]
+
   return (
     <section className="library-page reading-width" aria-labelledby="library-title">
-      <div className="eyebrow"><BookOpen size={14} /> 研究工作区</div>
-      <h1 id="library-title">文献库</h1>
-      <p className="library-description">{demoEvidence.length} 篇示例文献，用于演示综述中的页码与原文定位。</p>
-      <ul className="library-list">
-        {demoEvidence.map((evidence) => (
-          <li key={evidence.paper.id}>
-            <button className="library-paper" type="button" onClick={() => onPreview(evidence)}>
-              <span className="paper-icon"><FileText size={20} /></span>
-              <span className="library-paper-info">
-                <strong lang="en">{evidence.paper.title}</strong>
-                <small>{evidence.paper.author} · {evidence.paper.year} · {evidence.paper.pages} 页</small>
-                <span>{evidence.paper.summary}</span>
-              </span>
-              <ArrowUpRight size={16} />
-            </button>
-          </li>
-        ))}
-      </ul>
+      <div className="eyebrow"><BookOpen size={14} /> {project.name}</div>
+      <h1 id="library-title">项目知识库</h1>
+      <p className="library-description">工作目录 · {project.folder}</p>
+      <section className="library-section" aria-labelledby="library-path-title">
+        <div className="library-section-heading">
+          <h2 id="library-path-title">知识库路径</h2>
+          <button type="button" className="context-button" onClick={onConfigure}><SlidersHorizontal size={14} /> 配置路径</button>
+        </div>
+        {project.knowledgePaths.length > 0 ? (
+          <ul className="library-path-list">
+            {project.knowledgePaths.map((path) => <li key={path}><Folder size={16} /><span>{path}</span></li>)}
+          </ul>
+        ) : <p>为这个项目添加一个或多个知识库路径。</p>}
+      </section>
+      <section className="library-section" aria-labelledby="library-papers-title">
+        <div className="library-section-heading"><h2 id="library-papers-title">示例文献</h2></div>
+        {evidenceList.length > 0 ? (
+          <ul className="library-list">
+            {evidenceList.map((evidence) => (
+              <li key={evidence.paper.id}>
+                <button className="library-paper" type="button" onClick={() => onPreview(evidence)}>
+                  <span className="paper-icon"><FileText size={20} /></span>
+                  <span className="library-paper-info">
+                    <strong lang="en">{evidence.paper.title}</strong>
+                    <small>{evidence.paper.author} · {evidence.paper.year} · {evidence.paper.pages} 页</small>
+                    <span>{evidence.paper.summary}</span>
+                  </span>
+                  <ArrowUpRight size={16} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : <p>运行一篇示例综述后，它使用的示例文献会显示在这里。</p>}
+      </section>
     </section>
   )
 }

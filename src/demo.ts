@@ -24,6 +24,7 @@ export type ReviewRun = {
   id: string
   title: string
   question: string
+  referenceIds?: string[]
   evidence: Evidence[]
   sections: ReviewSection[]
 }
@@ -64,7 +65,7 @@ const coordination: Paper = {
   summary: '演示研究任务分配，以及由证据缺口触发的定向补查。',
 }
 
-export const demoEvidence: Evidence[] = [
+const demoEvidence: Evidence[] = [
   {
     paper: tracing,
     page: 4,
@@ -159,22 +160,27 @@ export const demoReviews: ReviewRun[] = [
   },
 ]
 
-export function createDemoReview(question: string): ReviewRun {
+export function createDemoReview(question: string, referenceIds: string[]): ReviewRun {
+  const id = crypto.randomUUID()
+  const example = demoReviews.find((review) => review.question === question)
+  if (example) return { ...example, id, referenceIds }
+
   return {
-    id: crypto.randomUUID(),
+    id,
     title: question,
     question,
+    referenceIds,
     evidence: demoEvidence,
     sections: [
       {
         id: 'summary',
         heading: '综述预览',
-        paragraphs: ['已接收研究问题。这里展示固定的示例内容，方便预览任务记录与引用检查。点击引用编号可查看对应的示例摘录。[[1]][[2]]'],
+        paragraphs: ['这份固定示例演示如何将研究问题分解成检索任务。研究员按子问题整理候选段落，并把论文页码随研究发现交给撰写员。[[1]][[2]]'],
       },
       {
         id: 'findings',
         heading: '核查预览',
-        paragraphs: ['在接入研究流程后，这里将展示证据支持的发现和审阅员标记的缺口。以下编号演示怎样返回文献中的相关页面。[[3]][[4]]'],
+        paragraphs: ['审阅员用原文逐条核对示例主张。缺少直接证据时，协调员把相关子任务交回研究员补查，再由撰写员修订对应段落。[[3]][[4]]'],
       },
     ],
   }

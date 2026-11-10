@@ -1,70 +1,63 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import {
-  BookOpen,
-  ChevronDown,
-  ChevronRight,
-  LibraryBig,
-  MessageSquareText,
-  Monitor,
-  Moon,
-  PanelLeft,
-  PanelRight,
-  Plus,
-  Sun,
-  X,
-} from 'lucide-react'
-import { createDemoReview, demoEvidence, demoReviews } from './demo'
+import { useEffect, useRef, useState } from 'react'
+import { ChevronRight, PanelLeft } from 'lucide-react'
+import { AgentActivity, agents } from './Agents'
+import { Composer } from './Composer'
+import { createDemoReview } from './demo'
 import type { Evidence, ReviewRun } from './demo'
 import { EvidenceInspector, Library, PagePreview } from './Evidence'
 import type { InspectorTab } from './Evidence'
-import { Composer, NewReview, Review } from './Review'
+import { readWorkspace, saveWorkspace } from './projects'
+import type { ProjectConfig } from './projects'
+import { NewReview, Review } from './Review'
+import { AppearanceSettings, ProjectSettings } from './Settings'
+import { Sidebar } from './Sidebar'
+import { useMediaQuery } from './useMediaQuery'
 
 type View = { kind: 'review'; id: string } | { kind: 'new' } | { kind: 'library' }
-
-const folioIcon = `${import.meta.env.BASE_URL}folio.svg`
-const themes = {
-  light: { label: '浅色', icon: Sun },
-  dark: { label: '深色', icon: Moon },
-  system: { label: '跟随系统', icon: Monitor },
-}
-type Theme = keyof typeof themes
-
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(() => matchMedia(query).matches)
-
-  useEffect(() => {
-    const media = matchMedia(query)
-    const update = () => setMatches(media.matches)
-    update()
-    media.addEventListener('change', update)
-    return () => media.removeEventListener('change', update)
-  }, [query])
-
-  return matches
-}
+type PendingRun = { projectId: string; review: ReviewRun; step: number }
+const stepDuration = 1800
 
 export function App() {
   const sidebarInline = useMediaQuery('(width > 820px)')
   const inspectorInline = useMediaQuery('(width > 1120px)')
-  const [reviews, setReviews] = useState(demoReviews)
-  const [view, setView] = useState<View>({ kind: 'review', id: demoReviews[0].id })
+  const [workspace, setWorkspace] = useState(readWorkspace)
+  const [runs, setRuns] = useState<PendingRun[]>([])
+  const [view, setView] = useState<View>({ kind: 'new' })
   const [sidebarOpen, setSidebarOpen] = useState(sidebarInline)
-  const [inspectorOpen, setInspectorOpen] = useState(inspectorInline)
+  const [sidebarWidth, setSidebarWidth] = useState(236)
+  const [projectForm, setProjectForm] = useState<'create' | 'edit' | null>(null)
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('citations')
-  const [citation, setCitation] = useState(0)
+  const [citation, setCitation] = useState<number | null>(null)
   const [question, setQuestion] = useState('')
+  const [referenceIds, setReferenceIds] = useState<string[]>([])
   const [preview, setPreview] = useState<Evidence | null>(null)
+  const timers = useRef(new Set<number>())
   const input = useRef<HTMLTextAreaElement>(null)
   const scrollPane = useRef<HTMLElement>(null)
   const sidebarToggle = useRef<HTMLButtonElement>(null)
-  const inspectorToggle = useRef<HTMLButtonElement>(null)
+  const citationTrigger = useRef<HTMLButtonElement>(null)
+  const settingsDialog = useRef<HTMLDialogElement>(null)
 
-  const activeReview = view.kind === 'review' ? reviews.find((review) => review.id === view.id) : undefined
-  const title = activeReview?.title ?? (view.kind === 'library' ? '文献库' : '新建综述')
-  const showInspector = inspectorOpen && Boolean(activeReview)
+  const project = workspace.projects.find(({ id }) => id === workspace.activeProjectId) ?? workspace.projects[0]
+  const projectRuns = runs.filter((run) => run.projectId === project.id)
+  const activeRun = view.kind === 'review' ? projectRuns.find((run) => run.review.id === view.id) : undefined
+  const activeReview = view.kind === 'review'
+    ? activeRun?.review ?? project.reviews.find((review) => review.id === view.id)
+    : undefined
+  const linkedReviews = project.reviews.filter((review) => activeReview?.referenceIds?.includes(review.id))
+  const title = activeReview?.title ?? (view.kind === 'library' ? '知识库' : '新建综述')
   const sidebarDrawer = sidebarOpen && !sidebarInline
-  const inspectorDrawer = showInspector && !inspectorInline
-  const viewKey = activeReview?.id ?? view.kind
+  const inspectorDrawer = citation !== null && !inspectorInline
+  const viewKey = project.id + '/' + (activeReview?.id ?? view.kind)
+
+  useEffect(() => {
+    saveWorkspace(workspace)
+  }, [workspace])
+
+  useEffect(() => {
+    const scheduled = timers.current
+    return () => scheduled.forEach((timer) => window.clearTimeout(timer))
+  }, [])
 
   useEffect(() => {
     if (scrollPane.current) scrollPane.current.scrollTop = 0
@@ -72,32 +65,84 @@ export function App() {
 
   function navigate(next: View) {
     setView(next)
-    setCitation(0)
-    setInspectorTab('citations')
+    setCitation(null)
+    citationTrigger.current = null
     if (!sidebarInline) setSidebarOpen(false)
-    if (!inspectorInline) setInspectorOpen(false)
-    if (sidebarDrawer && next.kind !== 'new') requestAnimationFrame(() => scrollPane.current?.focus())
+    if (next.kind === 'new') requestAnimationFrame(() => input.current?.focus())
+    else if (sidebarDrawer) requestAnimationFrame(() => scrollPane.current?.focus())
+  }
+
+  function clearDraft() {
+    setQuestion('')
+    setReferenceIds([])
   }
 
   function newReview() {
-    setQuestion('')
+    if (view.kind !== 'new') clearDraft()
     navigate({ kind: 'new' })
-    requestAnimationFrame(() => input.current?.focus())
+  }
+
+  function openReview(id: string) {
+    clearDraft()
+    navigate({ kind: 'review', id })
+  }
+
+  function selectProject(id: string) {
+    setWorkspace((previous) => ({ ...previous, activeProjectId: id }))
+    clearDraft()
+    navigate({ kind: 'new' })
+  }
+
+  function configureProject(config: ProjectConfig) {
+    if (projectForm === 'edit') {
+      setWorkspace((previous) => ({
+        ...previous,
+        projects: previous.projects.map((entry) => entry.id === project.id ? { ...entry, ...config } : entry),
+      }))
+    } else {
+      const created = { ...config, id: crypto.randomUUID(), reviews: [] }
+      setWorkspace((previous) => ({ projects: [...previous.projects, created], activeProjectId: created.id }))
+      clearDraft()
+      navigate({ kind: 'new' })
+    }
+    setProjectForm(null)
   }
 
   function submitQuestion() {
     const value = question.trim()
     if (!value) return
-    const review = createDemoReview(value)
-    setReviews((previous) => [review, ...previous])
+    const review = createDemoReview(value, referenceIds)
+    const projectId = project.id
+
+    setRuns((previous) => [...previous, { projectId, review, step: 0 }])
+    clearDraft()
     navigate({ kind: 'review', id: review.id })
-    setQuestion('')
+    requestAnimationFrame(() => document.getElementById('review-title')?.focus({ preventScroll: true }))
+
+    agents.forEach((_, index) => {
+      const step = index + 1
+      const timer = window.setTimeout(() => {
+        timers.current.delete(timer)
+        if (step === agents.length) {
+          setWorkspace((previous) => ({
+            ...previous,
+            projects: previous.projects.map((entry) => (
+              entry.id === projectId ? { ...entry, reviews: [review, ...entry.reviews] } : entry
+            )),
+          }))
+          setRuns((previous) => previous.filter((run) => run.review.id !== review.id))
+        } else {
+          setRuns((previous) => previous.map((run) => run.review.id === review.id ? { ...run, step } : run))
+        }
+      }, step * stepDuration)
+      timers.current.add(timer)
+    })
   }
 
-  function showCitation(index: number) {
+  function showCitation(index: number, trigger: HTMLButtonElement) {
+    citationTrigger.current = trigger
     setCitation(index)
     setInspectorTab('citations')
-    setInspectorOpen(true)
   }
 
   function closeSidebar() {
@@ -106,18 +151,33 @@ export function App() {
   }
 
   function closeInspector() {
-    setInspectorOpen(false)
-    inspectorToggle.current?.focus()
+    setCitation(null)
+    requestAnimationFrame(() => citationTrigger.current?.focus({ preventScroll: true }))
   }
 
   function jumpToSection(id: string) {
-    if (inspectorDrawer) setInspectorOpen(false)
+    if (inspectorDrawer) setCitation(null)
     requestAnimationFrame(() => {
       const heading = document.getElementById(id)
       heading?.focus({ preventScroll: true })
       heading?.scrollIntoView({ block: 'start' })
     })
   }
+
+  const composer = (
+    <Composer
+      key={viewKey}
+      input={input}
+      question={question}
+      knowledgeCount={project.knowledgePaths.length}
+      conversations={project.reviews.filter((review) => review.id !== activeReview?.id)}
+      referenceIds={referenceIds}
+      onChange={setQuestion}
+      onReferences={setReferenceIds}
+      onSubmit={submitQuestion}
+      onLibrary={() => navigate({ kind: 'library' })}
+    />
+  )
 
   return (
     <div className="app-window">
@@ -126,12 +186,23 @@ export function App() {
         <>
           <button className="sidebar-scrim" type="button" tabIndex={-1} aria-label="关闭侧边栏" onClick={closeSidebar} />
           <Sidebar
-            view={view}
-            reviews={reviews}
+            projects={workspace.projects}
+            projectId={project.id}
+            reviews={[...projectRuns.map((run) => run.review), ...project.reviews]}
+            runningIds={projectRuns.map((run) => run.review.id)}
+            activeReviewId={activeReview?.id}
+            view={view.kind}
             drawer={sidebarDrawer}
-            onNavigate={navigate}
+            width={sidebarWidth}
+            onProject={selectProject}
+            onReview={openReview}
             onNew={newReview}
+            onLibrary={() => navigate({ kind: 'library' })}
+            onCreateProject={() => setProjectForm('create')}
+            onEditProject={() => setProjectForm('edit')}
+            onSettings={() => settingsDialog.current?.showModal()}
             onClose={closeSidebar}
+            onResize={setSidebarWidth}
           />
         </>
       )}
@@ -151,62 +222,42 @@ export function App() {
               <PanelLeft size={18} />
             </button>
             <div className="breadcrumbs">
-              <span className="breadcrumb-root">研究工作台</span>
+              <span className="breadcrumb-root" title={project.folder}>{project.name}</span>
               <ChevronRight className="breadcrumb-separator" size={13} />
               <span className="breadcrumb-title" title={title}>{title}</span>
             </div>
           </div>
-          <div className="toolbar-trailing">
-            <span className="demo-badge"><span /> 原型预览</span>
-            <ThemePicker />
-            {activeReview && (
-              <button
-                ref={inspectorToggle}
-                className="toolbar-button"
-                type="button"
-                aria-label="证据面板"
-                title="显示或隐藏证据面板"
-                aria-expanded={showInspector}
-                aria-controls={showInspector ? 'evidence-inspector' : undefined}
-                onClick={() => setInspectorOpen((open) => !open)}
-              >
-                <PanelRight size={16} />
-                <span>证据</span>
-              </button>
-            )}
-          </div>
+          <span className="demo-badge"><span /> 原型预览</span>
         </header>
 
-        <div className="workspace-body">
+        <div className={activeRun ? 'workspace-body workspace-running' : 'workspace-body'}>
           <div className="workbench" inert={inspectorDrawer}>
-            <main className="reader" id="work-area" ref={scrollPane} tabIndex={-1}>
+            <main className={view.kind === 'new' ? 'reader reader-start' : 'reader'} id="work-area" ref={scrollPane} tabIndex={-1}>
               {activeReview && (
                 <Review
                   key={activeReview.id}
                   review={activeReview}
-                  activeCitation={showInspector && inspectorTab === 'citations' ? citation : undefined}
+                  linkedReviews={linkedReviews}
+                  runningStep={activeRun?.step}
+                  activeCitation={inspectorTab === 'citations' ? citation ?? undefined : undefined}
                   onCitation={showCitation}
+                  onConversation={openReview}
                 />
               )}
               {view.kind === 'new' && (
                 <NewReview onPrompt={(prompt) => {
                   setQuestion(prompt)
                   input.current?.focus()
-                }} />
+                }}>
+                  {composer}
+                </NewReview>
               )}
-              {view.kind === 'library' && <Library onPreview={setPreview} />}
+              {view.kind === 'library' && <Library project={project} onConfigure={() => setProjectForm('edit')} onPreview={setPreview} />}
             </main>
-            {view.kind !== 'library' && (
-              <Composer
-                input={input}
-                question={question}
-                onChange={setQuestion}
-                onSubmit={submitQuestion}
-                onLibrary={() => navigate({ kind: 'library' })}
-              />
-            )}
+            {activeReview && composer}
           </div>
-          {showInspector && activeReview && (
+          {activeRun && <AgentActivity step={activeRun.step} />}
+          {activeReview && !activeRun && citation !== null && (
             <>
               <button className="inspector-scrim" type="button" tabIndex={-1} aria-label="关闭证据面板" onClick={closeInspector} />
               <EvidenceInspector
@@ -215,7 +266,7 @@ export function App() {
                 tab={inspectorTab}
                 drawer={inspectorDrawer}
                 onTab={setInspectorTab}
-                onCitation={showCitation}
+                onCitation={setCitation}
                 onPreview={setPreview}
                 onJump={jumpToSection}
                 onClose={closeInspector}
@@ -224,122 +275,16 @@ export function App() {
           )}
         </div>
       </div>
+      <AppearanceSettings dialog={settingsDialog} />
+      {projectForm && (
+        <ProjectSettings
+          project={projectForm === 'edit' ? project : undefined}
+          otherFolders={workspace.projects.filter((entry) => projectForm === 'create' || entry.id !== project.id).map((entry) => entry.folder)}
+          onSave={configureProject}
+          onClose={() => setProjectForm(null)}
+        />
+      )}
       {preview && <PagePreview evidence={preview} onClose={() => setPreview(null)} />}
     </div>
-  )
-}
-
-function ThemePicker() {
-  const [theme, setTheme] = useState<Theme>(() => {
-    try {
-      const savedTheme = localStorage.getItem('folio.theme')
-      if (savedTheme === 'dark' || savedTheme === 'system') return savedTheme
-    } catch {
-      // Restricted browser contexts use the default appearance.
-    }
-    return 'light'
-  })
-  const systemDark = useMediaQuery('(prefers-color-scheme: dark)')
-  const dark = theme === 'dark' || (theme === 'system' && systemDark)
-  const Icon = themes[theme].icon
-
-  useLayoutEffect(() => {
-    document.documentElement.dataset.theme = dark ? 'dark' : 'light'
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#1d1d1d' : '#ffffff')
-  }, [dark])
-
-  return (
-    <div className="theme-picker">
-      <Icon className="theme-icon" size={15} aria-hidden="true" />
-      <select
-        aria-label="外观主题"
-        value={theme}
-        onChange={(event) => {
-          const next = event.currentTarget.value as Theme
-          setTheme(next)
-          try {
-            localStorage.setItem('folio.theme', next)
-          } catch {
-            // Theme switching still works for the current page.
-          }
-        }}
-      >
-        {Object.entries(themes).map(([value, { label }]) => (
-          <option value={value} key={value}>{label}</option>
-        ))}
-      </select>
-      <ChevronDown className="theme-chevron" size={12} aria-hidden="true" />
-    </div>
-  )
-}
-
-function Sidebar({ view, reviews, drawer, onNavigate, onNew, onClose }: {
-  view: View
-  reviews: ReviewRun[]
-  drawer: boolean
-  onNavigate: (view: View) => void
-  onNew: () => void
-  onClose: () => void
-}) {
-  const close = useRef<HTMLButtonElement>(null)
-
-  useEffect(() => {
-    if (drawer) close.current?.focus()
-  }, [drawer])
-
-  return (
-    <aside
-      className="sidebar"
-      id="workspace-sidebar"
-      aria-label="工作区侧边栏"
-      onKeyDown={(event) => {
-        if (drawer && event.key === 'Escape') onClose()
-      }}
-    >
-      <div className="brand">
-        <img src={folioIcon} width="40" height="40" alt="" />
-        <div>
-          <span className="brand-name">Folio</span>
-          <span className="brand-caption">文献综述工作台</span>
-        </div>
-        <button ref={close} className="icon-button sidebar-close" type="button" aria-label="收起侧边栏" onClick={onClose}>
-          <X size={16} />
-        </button>
-      </div>
-
-      <nav className="sidebar-navigation" aria-label="工作区导航">
-        <button className="new-review-button" type="button" onClick={onNew} aria-current={view.kind === 'new' ? 'page' : undefined}>
-          <Plus size={17} /> 新建综述
-        </button>
-        <button className="sidebar-row library-button" type="button" onClick={() => onNavigate({ kind: 'library' })} aria-current={view.kind === 'library' ? 'page' : undefined}>
-          <LibraryBig size={17} /> <span>文献库</span> <span className="sidebar-count">{demoEvidence.length}</span>
-        </button>
-        <h2 className="sidebar-heading">最近综述</h2>
-        <ul className="review-history">
-          {reviews.map((review) => (
-            <li key={review.id}>
-              <button
-                className="sidebar-row history-row"
-                type="button"
-                title={review.title}
-                aria-current={view.kind === 'review' && view.id === review.id ? 'page' : undefined}
-                onClick={() => onNavigate({ kind: 'review', id: review.id })}
-              >
-                <MessageSquareText size={16} />
-                <span>{review.title}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </nav>
-
-      <div className="sidebar-footer">
-        <span className="collection-icon"><BookOpen size={16} /></span>
-        <div>
-          <strong>本地文献工作区</strong>
-          <small>{demoEvidence.length} 篇示例论文</small>
-        </div>
-      </div>
-    </aside>
   )
 }

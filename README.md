@@ -28,7 +28,9 @@ Important claims will link back to specific papers and PDF pages. The final outp
 
 ## Frontend Prototype
 
-Folio is a React, TypeScript, and Vite prototype. It opens with an example review. Use **新建综述** to start a demo session, or click a numbered citation to inspect its excerpt and sample page. The papers and excerpts are fictional. Demo sessions are kept in memory for the current tab.
+Folio is a React, TypeScript, and Vite prototype. It opens with a centered research prompt. Submit a question to see four Agents work through a simulated review, then click a numbered citation to open its evidence panel. The reports, papers, and excerpts use demo data.
+
+Projects group conversations under a working folder and support multiple knowledge-base paths. Type `@` in the composer to attach an existing conversation from the current project. Project settings and completed demo sessions are saved in the current browser tab. Paths are stored as configuration text for the prototype.
 
 Run with Node.js 22.12 or later.
 
@@ -39,4 +41,4 @@ npm run dev
 
 `npm run build` checks TypeScript and writes the static frontend to `dist/`. `npm run preview` serves that build locally. The web app manifest lets supported browsers install the workspace in a standalone window when served from localhost or HTTPS.
 
-The interface uses system fonts, a collapsible sidebar, and a trailing evidence inspector. The toolbar lets you choose Light, Dark, or System appearance. Light is the default, and the browser remembers your choice. [Apple's macOS design guide](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos) · [Split views](https://developer.apple.com/design/human-interface-guidelines/split-views) · [Materials](https://developer.apple.com/design/human-interface-guidelines/materials)
+Drag the sidebar divider to resize it, or use the toolbar button to hide and show it. **设置** in the lower-left corner lets you choose Light, Dark, or System appearance. Light is the default, and the browser remembers your choice. [Apple's macOS design guide](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos) · [Split views](https://developer.apple.com/design/human-interface-guidelines/split-views) · [Materials](https://developer.apple.com/design/human-interface-guidelines/materials)
