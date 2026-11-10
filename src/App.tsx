@@ -1,12 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   BookOpen,
+  ChevronDown,
   ChevronRight,
   LibraryBig,
   MessageSquareText,
+  Monitor,
+  Moon,
   PanelLeft,
   PanelRight,
   Plus,
+  Sun,
   X,
 } from 'lucide-react'
 import { createDemoReview, demoEvidence, demoReviews } from './demo'
@@ -18,6 +22,12 @@ import { Composer, NewReview, Review } from './Review'
 type View = { kind: 'review'; id: string } | { kind: 'new' } | { kind: 'library' }
 
 const folioIcon = `${import.meta.env.BASE_URL}folio.svg`
+const themes = {
+  light: { label: '浅色', icon: Sun },
+  dark: { label: '深色', icon: Moon },
+  system: { label: '跟随系统', icon: Monitor },
+}
+type Theme = keyof typeof themes
 
 function useMediaQuery(query: string) {
   const [matches, setMatches] = useState(() => matchMedia(query).matches)
@@ -148,6 +158,7 @@ export function App() {
           </div>
           <div className="toolbar-trailing">
             <span className="demo-badge"><span /> 原型预览</span>
+            <ThemePicker />
             {activeReview && (
               <button
                 ref={inspectorToggle}
@@ -214,6 +225,50 @@ export function App() {
         </div>
       </div>
       {preview && <PagePreview evidence={preview} onClose={() => setPreview(null)} />}
+    </div>
+  )
+}
+
+function ThemePicker() {
+  const [theme, setTheme] = useState<Theme>(() => {
+    try {
+      const savedTheme = localStorage.getItem('folio.theme')
+      if (savedTheme === 'dark' || savedTheme === 'system') return savedTheme
+    } catch {
+      // Restricted browser contexts use the default appearance.
+    }
+    return 'light'
+  })
+  const systemDark = useMediaQuery('(prefers-color-scheme: dark)')
+  const dark = theme === 'dark' || (theme === 'system' && systemDark)
+  const Icon = themes[theme].icon
+
+  useLayoutEffect(() => {
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#1d1d1d' : '#ffffff')
+  }, [dark])
+
+  return (
+    <div className="theme-picker">
+      <Icon className="theme-icon" size={15} aria-hidden="true" />
+      <select
+        aria-label="外观主题"
+        value={theme}
+        onChange={(event) => {
+          const next = event.currentTarget.value as Theme
+          setTheme(next)
+          try {
+            localStorage.setItem('folio.theme', next)
+          } catch {
+            // Theme switching still works for the current page.
+          }
+        }}
+      >
+        {Object.entries(themes).map(([value, { label }]) => (
+          <option value={value} key={value}>{label}</option>
+        ))}
+      </select>
+      <ChevronDown className="theme-chevron" size={12} aria-hidden="true" />
     </div>
   )
 }
