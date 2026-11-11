@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { ArrowUpRight, AtSign, BadgeCheck, BookOpen, Check, ChevronDown, ChevronRight, CircleAlert, FlaskConical, History, ListChecks, MessageSquareText, NotebookPen, RotateCw, Settings, Workflow } from 'lucide-react'
+import { ArrowUpRight, AtSign, BadgeCheck, BookOpen, Check, ChevronDown, ChevronRight, CircleAlert, FileText, FlaskConical, History, ListChecks, MessageSquareText, NotebookPen, RotateCw, Settings, Workflow } from 'lucide-react'
 import { testPrompts } from './demo'
 import type { ReviewRun, ReviewTurn } from './demo'
-import { visibleParagraph } from './response'
+import { citationParts, visibleParagraph } from './response'
 import { agents } from './workflow'
 import type { AgentActivity } from './workflow'
 
@@ -56,11 +56,11 @@ function ReportBody({ turn, index, responding, partial, activeCitation, onCitati
           <h2 id={sectionAnchor(index, section.id)} tabIndex={-1}>{section.heading}</h2>
           {section.paragraphs.map((paragraph, paragraphIndex) => (
             <p key={paragraphIndex}>
-              {(partial ? visibleParagraph(paragraph) : paragraph).split(/(\[\[\d+\]\])/).map((part, partIndex) => {
-                const match = /^\[\[(\d+)\]\]$/.exec(part)
-                const citation = match ? Number(match[1]) - 1 : -1
+              {citationParts(partial ? visibleParagraph(paragraph) : paragraph, turn.evidence.length).map((part, partIndex) => {
+                if (typeof part === 'string') return part
+                const citation = part - 1
                 const selected = activeCitation?.turn === index && activeCitation.index === citation
-                return turn.evidence[citation] ? (
+                return (
                   <button
                     className="inline-citation"
                     type="button"
@@ -73,7 +73,7 @@ function ReportBody({ turn, index, responding, partial, activeCitation, onCitati
                   >
                     {citation + 1}
                   </button>
-                ) : part
+                )
               })}
             </p>
           ))}
@@ -83,7 +83,7 @@ function ReportBody({ turn, index, responding, partial, activeCitation, onCitati
   )
 }
 
-export function Review({ review, conversations, runningPhase, responding, connecting, error, onRetry, onSettings, activeCitation, onCitation, onConversation, onSuggestion }: {
+export function Review({ review, conversations, runningPhase, responding, connecting, error, onRetry, onSettings, activeCitation, onCitation, onConversation, onSuggestion, onPreviewReport }: {
   review: ReviewRun
   conversations: ReviewRun[]
   runningPhase?: AgentActivity
@@ -96,6 +96,7 @@ export function Review({ review, conversations, runningPhase, responding, connec
   onCitation: (turn: number, index: number, trigger: HTMLButtonElement) => void
   onConversation: (id: string) => void
   onSuggestion?: (prompt: string) => void
+  onPreviewReport?: () => void
 }) {
   const [workflowOpen, setWorkflowOpen] = useState(true)
   const history = review.history ?? []
@@ -112,7 +113,10 @@ export function Review({ review, conversations, runningPhase, responding, connec
   return (
     <article className="review-page reading-width" aria-labelledby="review-title">
       <header className="review-header">
-        <div className="eyebrow"><BookOpen size={14} /> 文献综述 {demo && <><span className="eyebrow-divider" /> 示例会话</>}</div>
+        <div className="review-header-actions">
+          <div className="eyebrow"><BookOpen size={14} /> 文献综述 {demo && <><span className="eyebrow-divider" /> 示例会话</>}</div>
+          {onPreviewReport && <button className="context-button" type="button" aria-haspopup="dialog" onClick={onPreviewReport}><FileText size={14} /> 预览综述</button>}
+        </div>
         <h1 id="review-title" tabIndex={-1}>{review.title}</h1>
         {!followUp && review.question !== review.title && (
           <div className="research-question">

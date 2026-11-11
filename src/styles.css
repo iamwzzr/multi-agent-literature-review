@@ -1692,6 +1692,15 @@ kbd {
   background: var(--accent-wash);
 }
 
+.source-pdf-link {
+  margin-top: 4px;
+  text-decoration: none;
+}
+
+.preview-paper .source-pdf-link {
+  margin-top: 12px;
+}
+
 .preview-arrow,
 .outline-arrow {
   margin-left: auto;

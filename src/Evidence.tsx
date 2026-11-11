@@ -9,6 +9,15 @@ function paperAttribution({ author, year }: Paper) {
   return year === null ? author : author + ' · ' + year
 }
 
+function SourcePdfLink({ evidence }: { evidence: Evidence }) {
+  if (!evidence.pdfUrl) return null
+  return (
+    <a className="preview-button source-pdf-link" href={evidence.pdfUrl} target="_blank" rel="noopener noreferrer">
+      <FileText size={15} /> 打开源 PDF · 第 {evidence.page} 页 <ArrowUpRight className="preview-arrow" size={14} />
+    </a>
+  )
+}
+
 export function EvidenceInspector({ review, citation, tab, drawer, onTab, onCitation, onPreview, onJump, onClose }: {
   review: ReviewTurn
   citation: number
@@ -70,6 +79,7 @@ export function EvidenceInspector({ review, citation, tab, drawer, onTab, onCita
             <button className="preview-button" type="button" onClick={() => onPreview(evidence)}>
               <FileText size={15} /> {evidence.source ? '查看原文摘录' : '查看示例页'} <ArrowUpRight className="preview-arrow" size={14} />
             </button>
+            <SourcePdfLink evidence={evidence} />
           </section>
 
           <section className="citation-index" aria-labelledby="citation-index-title">
@@ -188,6 +198,7 @@ export function PagePreview({ evidence, onClose }: { evidence: Evidence; onClose
         <p className="paper-meta">{paperAttribution(evidence.paper)}</p>
         <p>{evidence.context}</p>
         <blockquote><mark>{evidence.excerpt}</mark></blockquote>
+        <SourcePdfLink evidence={evidence} />
         <div className="paper-page-number">{evidence.page} / {evidence.paper.pages}</div>
       </div>
     </dialog>

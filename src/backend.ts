@@ -10,7 +10,7 @@ const streamType = 'application/x-ndjson'
 const agentIds = new Set<string>(agents.map(({ id }) => id))
 
 export type BackendSettings = { url: string; useDemo: boolean }
-type EvidenceItem = Omit<Evidence, 'source'>
+type EvidenceItem = Omit<Evidence, 'source' | 'pdfUrl'>
 type ReviewOutput = Pick<ReviewTurn, 'sections' | 'evidence'>
 type ContextTurn = { question: string; sections: ReviewSection[]; evidence: EvidenceItem[] }
 type ReviewRequest = {
@@ -106,6 +106,7 @@ function isEvidence(item: unknown): item is EvidenceItem {
   return isText(paper.id) && isText(paper.title) && isText(paper.author) &&
     (paper.year === null || isPositiveInteger(paper.year)) &&
     isPositiveInteger(paper.pages) && typeof paper.summary === 'string' &&
+    (paper.pdfAvailable === undefined || typeof paper.pdfAvailable === 'boolean') &&
     isPositiveInteger(page) && page <= paper.pages && isText(excerpt) && typeof context === 'string'
 }
 
@@ -182,11 +183,20 @@ export async function streamBackendReview(url: string, request: ReviewRequest, s
         if (!isPhase(event)) throw invalidStream()
         onUpdate({ kind: 'phase', phase: event })
         return
-      case 'evidence':
+      case 'evidence': {
         if (event.index !== evidence.length + 1 || !isEvidence(event.item)) throw invalidStream()
-        evidence = [...evidence, { ...event.item, source: 'backend' }]
+        const { paper, page, excerpt, context } = event.item
+        let pdfUrl: string | undefined
+        if (paper.pdfAvailable) {
+          const pdf = new URL(url + apiPrefix + '/papers/pdf')
+          pdf.search = new URLSearchParams({ projectId: request.project.id, paperId: paper.id }).toString()
+          pdf.hash = 'page=' + page
+          pdfUrl = pdf.href
+        }
+        evidence = [...evidence, { paper, page, excerpt, context, source: 'backend', pdfUrl }]
         if (sections.length === 0) return
         break
+      }
       case 'section':
         if (!isText(event.id) || !isText(event.heading) || sections.some(({ id }) => id === event.id)) throw invalidStream()
         sections = [...sections, { id: event.id, heading: event.heading, paragraphs: [] }]

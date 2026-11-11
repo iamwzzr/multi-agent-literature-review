@@ -39,6 +39,8 @@ Projects group conversations under a working folder and support multiple knowled
 
 Send follow-ups from the composer below a report. Each follow-up keeps the same conversation and streams a new reply. Expand earlier turns to read their reports and inspect their citations. Type `@` to attach another conversation from the current project. The **…** button on each conversation lets you archive, restore, or delete it. Project settings and completed conversations are saved in the current browser tab.
 
+Choose **预览综述** on a completed report to read it as a document and select an earlier version. **保存 PDF** opens the browser's A4 print preview, and **下载 Markdown** saves an editable copy. Both formats include the cited references. When the backend provides a source PDF, its citation offers **打开源 PDF** at the cited page.
+
 Run with Node.js 22.12 or later.
 
 ```sh
@@ -60,3 +62,4 @@ Drag the sidebar divider to resize it, or use the toolbar button to hide and sho
 - Open a conversation’s **…** menu. Archive and restore it, then try deleting a disposable test conversation. Reload to check that the change persists in the tab.
 - In **配置项目**, use **浏览…** to choose a working folder and **添加文件夹** for knowledge paths. Edit or remove a path, then save and check the knowledge library.
 - In **空白测试项目**, use the row-end **+** buttons to add a folder and open a blank conversation. The sidebar shows the new conversation after the first message is sent.
+- Open the saved long report and choose **预览综述**. Check the links to the reference list, save an A4 PDF, and download a Markdown copy.

@@ -8,6 +8,7 @@ import { EvidenceInspector, Library, PagePreview } from './Evidence'
 import type { InspectorTab } from './Evidence'
 import { pickFolder } from './folderPicker'
 import { ResearchOffice } from './Office'
+import { hasReport, ReportPreview } from './ReportPreview'
 import { readWorkspace, removeReview, saveWorkspace } from './projects'
 import type { ProjectConfig } from './projects'
 import { reportLength, revealSections } from './response'
@@ -53,6 +54,7 @@ export function App() {
   const [citation, setCitation] = useState<Citation | null>(null)
   const [drafts, setDrafts] = useState<Record<string, Draft>>({})
   const [preview, setPreview] = useState<Evidence | null>(null)
+  const [reportPreview, setReportPreview] = useState<ReviewRun | null>(null)
   const timers = useRef(new Map<string, number>())
   const backendRequests = useRef(new Map<string, AbortController>())
   const input = useRef<HTMLTextAreaElement>(null)
@@ -482,6 +484,7 @@ export function App() {
                   activeCitation={inspectorTab === 'citations' ? citation ?? undefined : undefined}
                   onCitation={showCitation}
                   onConversation={openReview}
+                  onPreviewReport={savedReview && hasReport(savedReview) ? () => setReportPreview(savedReview) : undefined}
                   onSuggestion={activeRun || activeArchived || question.trim() ? undefined : (prompt) => {
                     updateDraft({ question: prompt })
                     input.current?.focus()
@@ -550,6 +553,7 @@ export function App() {
       )}
       {reviewToDelete && <DeleteReviewDialog review={reviewToDelete} onDelete={() => deleteReview(reviewToDelete.id)} onClose={() => setReviewToDelete(null)} />}
       {preview && <PagePreview evidence={preview} onClose={() => setPreview(null)} />}
+      {reportPreview && <ReportPreview review={reportPreview} onClose={() => setReportPreview(null)} />}
     </div>
   )
 }

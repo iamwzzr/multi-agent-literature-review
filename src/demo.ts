@@ -5,6 +5,7 @@ export type Paper = {
   year: number | null
   pages: number
   summary: string
+  pdfAvailable?: boolean
 }
 
 export type Evidence = {
@@ -13,6 +14,7 @@ export type Evidence = {
   excerpt: string
   context: string
   source?: 'backend'
+  pdfUrl?: string
 }
 
 export type ReviewSection = {

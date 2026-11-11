@@ -10,6 +10,7 @@ Folio 默认访问 `http://localhost:35549`。本机开发时请让后端监听�
 | --- | --- | --- |
 | `GET` | `/api/v1/health` | 检查服务是否就绪以及是否支持 Folio v1 |
 | `POST` | `/api/v1/reviews/stream` | 新建或续写综述，流式返回进度、报告和证据 |
+| `GET` | `/api/v1/papers/pdf?projectId=…&paperId=…` | 可选。提供引用对应的源论文 PDF |
 
 ## `GET /api/v1/health`
 
@@ -89,6 +90,14 @@ Agent ID 固定为 `planner`（统筹规划）、`search`（文献检索）、`a
 
 可以用 `400` 表示请求格式错误，`422` 表示项目目录或知识库配置不可用，`503` 表示模型或服务暂时不可用。错误文案应帮助用户修复问题。用户点击「停止生成」或删除生成中的对话时，浏览器会中止 HTTP 请求，后端应在连接断开时停止对应任务并释放资源。
 
+## 源论文 PDF
+
+能提供整份 PDF 时，在流式 `evidence` 事件的 `item.paper` 中设置 `pdfAvailable: true`。前端用当前生成服务的地址和项目、论文 ID 组成 `/api/v1/papers/pdf?projectId=…&paperId=…`，在浏览器 PDF 阅读器打开并通过 `#page=N` 定位到证据页。原文摘录入口仍独立可用。 [PDF 页码定位规范](https://www.rfc-editor.org/rfc/rfc8118.html#section-3)
+
+按 `projectId` 和 `paperId` 查找索引中的论文并校验访问范围。成功响应返回 PDF 字节，使用 `Content-Type: application/pdf` 和 `Content-Disposition: inline`。大文件可支持 HTTP Range 请求。前端使用的页码与提供的 PDF 版本应一致。
+
+成品综述的 PDF 和 Markdown 由前端根据已完成的报告生成，使用同一份章节和引用数据。
+
 ## 后端开发任务
 
 1. **服务和联调。** 实现健康检查和流式路由，监听 `35549`。前端开发源包括 `http://localhost:5173` 和 `http://127.0.0.1:5173`，生产构建本地预览使用 `4173`。按实际前端源配置 CORS，处理 `OPTIONS`、`GET`、`POST` 和 `Content-Type` 请求头。响应与错误都返回正确的跨域头。 [Fetch CORS 规范](https://fetch.spec.whatwg.org/#http-cors-protocol)
@@ -103,5 +112,6 @@ Agent ID 固定为 `planner`（统筹规划）、`search`（文献检索）、`a
 2. 在 Folio 配置一个实际含 PDF 的知识库，输入一个研究问题。检查办公室的 Agent 状态、逐段显示的正文和可打开的引用。
 3. 在同一对话追问一次，检查后端收到相同 `conversationId` 和前一轮 `history`。打开旧回复，核对旧引用仍能定位。
 4. 模拟路径错误、流中途关闭和用户停止，确认前端提示失败或停止，并可重试。
+5. 提供源 PDF 接口后，验证「打开源 PDF」定位到引用页，并从「预览综述」保存一份带参考文献的 PDF。
 
 从公开站点访问本机后端时，Chrome 可能要求站点获准访问本地网络。联调可从本地 Vite 地址发起。 [Chrome 本地网络访问说明](https://developer.chrome.com/blog/local-network-access)

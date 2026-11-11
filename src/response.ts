@@ -4,6 +4,15 @@ export function visibleParagraph(text: string) {
   return text.replace(/\[(?:\[\d*\]?)?$/u, '').replace(/[\uD800-\uDBFF]$/u, '')
 }
 
+export function citationParts(text: string, evidenceCount: number) {
+  return text.split(/(\[\[\d+\]\])/).map((part) => {
+    const match = /^\[\[(\d+)\]\]$/.exec(part)
+    if (!match) return part
+    const number = Number(match[1])
+    return number >= 1 && number <= evidenceCount ? number : part
+  })
+}
+
 export function reportLength(sections: ReviewSection[]) {
   return sections.reduce((length, { heading, paragraphs }) => (
     length + heading.length + paragraphs.reduce((total, paragraph) => total + paragraph.length, 0)
