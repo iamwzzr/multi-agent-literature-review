@@ -1,7 +1,7 @@
 import { BadgeCheck, FilePenLine, ListTree, Search, TextSearch } from 'lucide-react'
 
 export const agents = [
-  { id: 'planner', name: '统筹规划', role: 'Supervisor / Planner', task: '拆解问题、协调分工', activity: '在白板上拆解研究问题，分派检索、分析与撰写任务。', icon: ListTree },
+  { id: 'planner', name: '统筹规划', role: 'Supervisor / Planner', task: '任务规划与协调', activity: '在白板上拆解研究问题，分派检索、分析与撰写任务。', icon: ListTree },
   { id: 'search', name: '文献检索', role: 'Search Agent', task: '查找候选文献', activity: '在知识库中寻找相关论文，记录候选段落和页码。', icon: Search },
   { id: 'analysis', name: '论文分析', role: 'Analysis Agent', task: '整理研究证据', activity: '对照论文的方法、发现与限制，整理可比较的证据。', icon: TextSearch },
   { id: 'writing', name: '综述撰写', role: 'Writing Agent', task: '生成结构化综述', activity: '先搭建综述提纲，再把研究发现写进相应章节。', icon: FilePenLine },

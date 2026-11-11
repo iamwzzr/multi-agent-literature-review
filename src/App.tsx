@@ -15,10 +15,14 @@ import { Sidebar } from './Sidebar'
 import { useMediaQuery } from './useMediaQuery'
 import { reviewFlows } from './workflow'
 
-type View = { kind: 'review'; id: string } | { kind: 'new' | 'library' | 'office' }
+type View = { kind: 'review'; id: string } | { kind: 'new' | 'library' }
 type PendingRun = { projectId: string; review: ReviewRun } & (
   { kind: 'office'; phase: number } | { kind: 'response'; visibleLength: number }
 )
+
+function runPhase(run?: PendingRun) {
+  if (run?.kind === 'office') return reviewFlows[run.review.mockFlow ?? 'revision'][run.phase]
+}
 
 export function App() {
   const sidebarInline = useMediaQuery('(width > 820px)')
@@ -28,6 +32,7 @@ export function App() {
   const [view, setView] = useState<View>({ kind: 'new' })
   const [sidebarOpen, setSidebarOpen] = useState(sidebarInline)
   const [sidebarWidth, setSidebarWidth] = useState(236)
+  const [officeOpen, setOfficeOpen] = useState(false)
   const [projectForm, setProjectForm] = useState<'create' | 'edit' | null>(null)
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('citations')
   const [citation, setCitation] = useState<number | null>(null)
@@ -38,17 +43,15 @@ export function App() {
   const input = useRef<HTMLTextAreaElement>(null)
   const scrollPane = useRef<HTMLElement>(null)
   const sidebarToggle = useRef<HTMLButtonElement>(null)
+  const officeToggle = useRef<HTMLButtonElement>(null)
   const citationTrigger = useRef<HTMLButtonElement>(null)
   const settingsDialog = useRef<HTMLDialogElement>(null)
 
   const project = workspace.projects.find(({ id }) => id === workspace.activeProjectId) ?? workspace.projects[0]
   const projectRuns = runs.filter((run) => run.projectId === project.id)
   const activeRun = view.kind === 'review' ? projectRuns.find((run) => run.review.id === view.id) : undefined
-  const officeRun = view.kind === 'office' ? projectRuns.at(-1) : undefined
-  const currentRun = activeRun ?? officeRun
-  const currentPhase = currentRun?.kind === 'office'
-    ? reviewFlows[currentRun.review.mockFlow ?? 'revision'][currentRun.phase]
-    : undefined
+  const officeRun = activeRun ?? projectRuns.at(-1)
+  const activePhase = runPhase(activeRun)
   const activeReview = view.kind === 'review'
     ? activeRun?.review ?? project.reviews.find((review) => review.id === view.id)
     : undefined
@@ -56,11 +59,11 @@ export function App() {
     ? { ...activeReview, sections: revealSections(activeReview.sections, activeRun.visibleLength) }
     : activeReview
   const linkedReviews = project.reviews.filter((review) => activeReview?.referenceIds?.includes(review.id))
-  const title = activeReview?.title ?? (view.kind === 'library' ? '知识库' : view.kind === 'office' ? '研究办公室' : '新建综述')
+  const title = activeReview?.title ?? (view.kind === 'library' ? '知识库' : '新建综述')
   const sidebarDrawer = sidebarOpen && !sidebarInline
   const inspectorDrawer = citation !== null && !inspectorInline
   const viewKey = project.id + '/' + (activeReview?.id ?? view.kind)
-  const showingOffice = activeRun?.kind === 'office'
+  const showOffice = officeOpen && citation === null
 
   useEffect(() => {
     saveWorkspace(workspace)
@@ -73,7 +76,7 @@ export function App() {
 
   useEffect(() => {
     if (scrollPane.current) scrollPane.current.scrollTop = 0
-  }, [viewKey, showingOffice])
+  }, [viewKey])
 
   function navigate(next: View) {
     setView(next)
@@ -96,6 +99,7 @@ export function App() {
 
   function openReview(id: string) {
     clearDraft()
+    if (projectRuns.some((run) => run.review.id === id && run.kind === 'office')) setOfficeOpen(true)
     navigate({ kind: 'review', id })
   }
 
@@ -164,6 +168,7 @@ export function App() {
     const phases = reviewFlows[review.mockFlow ?? 'revision']
 
     setRuns((previous) => [...previous, { projectId, review, kind: 'office', phase: 0 }])
+    setOfficeOpen(true)
     clearDraft()
     navigate({ kind: 'review', id: review.id })
     requestAnimationFrame(() => document.getElementById('review-title')?.focus({ preventScroll: true }))
@@ -193,6 +198,19 @@ export function App() {
   function closeSidebar() {
     setSidebarOpen(false)
     requestAnimationFrame(() => sidebarToggle.current?.focus())
+  }
+
+  function toggleOffice() {
+    setOfficeOpen(!showOffice)
+    if (!showOffice) {
+      setCitation(null)
+      citationTrigger.current = null
+    }
+  }
+
+  function closeOffice() {
+    setOfficeOpen(false)
+    officeToggle.current?.focus()
   }
 
   function closeInspector() {
@@ -273,14 +291,14 @@ export function App() {
             </div>
           </div>
           <div className="toolbar-actions">
-            <button className="context-button office-entry" type="button" aria-current={view.kind === 'office' ? 'page' : undefined} onClick={() => navigate({ kind: 'office' })}>
+            <button ref={officeToggle} className="context-button office-entry" type="button" aria-expanded={showOffice} aria-controls={showOffice ? 'office-panel' : undefined} onClick={toggleOffice}>
               <Building2 size={15} /> 办公室
             </button>
             <span className="demo-badge"><span /> 原型预览</span>
           </div>
         </header>
 
-        <div className="workspace-body">
+        <div className="workspace-body" data-office-open={showOffice}>
           <div className="workbench" inert={inspectorDrawer}>
             <main className={view.kind === 'new' ? 'reader reader-start' : 'reader'} id="work-area" ref={scrollPane} tabIndex={-1}>
               {displayReview && (
@@ -288,7 +306,7 @@ export function App() {
                   key={displayReview.id}
                   review={displayReview}
                   linkedReviews={linkedReviews}
-                  runningPhase={currentPhase}
+                  runningPhase={activePhase}
                   responding={activeRun?.kind === 'response'}
                   activeCitation={inspectorTab === 'citations' ? citation ?? undefined : undefined}
                   onCitation={showCitation}
@@ -304,19 +322,18 @@ export function App() {
                 </NewReview>
               )}
               {view.kind === 'library' && <Library project={project} onConfigure={() => setProjectForm('edit')} onPreview={setPreview} />}
-              {view.kind === 'office' && (
-                <div className="office-route office-width">
-                  <ResearchOffice
-                    key={officeRun?.review.id ?? 'waiting'}
-                    phase={currentPhase}
-                    onOpenRun={officeRun ? () => openReview(officeRun.review.id) : undefined}
-                  />
-                </div>
-              )}
             </main>
-            {(activeReview || view.kind === 'office') && composer}
+            {activeReview && composer}
           </div>
-          {displayReview && !showingOffice && citation !== null && (
+          {showOffice && (
+            <ResearchOffice
+              key={project.id}
+              phase={runPhase(officeRun)}
+              onOpenRun={officeRun && officeRun !== activeRun ? () => openReview(officeRun.review.id) : undefined}
+              onClose={closeOffice}
+            />
+          )}
+          {displayReview && !activePhase && citation !== null && (
             <>
               <button className="inspector-scrim" type="button" tabIndex={-1} aria-label="关闭证据面板" onClick={closeInspector} />
               <EvidenceInspector

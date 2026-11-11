@@ -31,7 +31,7 @@ Important claims will link back to specific papers and PDF pages. The final outp
 
 Folio is a React, TypeScript, and Vite prototype. It opens with a centered research prompt. Submit a question to see all five Agents in a shared research office. After the simulated verification, the interface waits for the first response chunk, then streams the report a piece at a time. Click a visible numbered citation to open its evidence panel. The reports, papers, and excerpts use demo data.
 
-Open **办公室** in the toolbar to view the project office at any time. Select a desk to see the Agent's assignment. Working Agents switch from the idle sprite to a typing animation. The room and sprites load with the office view.
+Use **办公室** in the toolbar to toggle the right sidebar alongside the current prompt or report. The sidebar opens when a review starts. Select a desk to see the Agent's assignment and typing animation. Clicking a citation brings evidence into the same space, and closing it returns to the office if it was open.
 
 Projects group conversations under a working folder and support multiple knowledge-base paths. Type `@` in the composer to attach an existing conversation from the current project. Project settings and completed demo sessions are saved in the current browser tab. Paths are stored as configuration text for the prototype.
 

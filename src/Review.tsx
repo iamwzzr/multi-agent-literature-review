@@ -3,7 +3,6 @@ import type { ReactNode } from 'react'
 import { ArrowUpRight, AtSign, BookOpen, Check, ChevronDown, FlaskConical, Workflow } from 'lucide-react'
 import { testPrompts } from './demo'
 import type { ReviewRun } from './demo'
-import { ResearchOffice } from './Office'
 import { agents } from './workflow'
 import type { RunPhase } from './workflow'
 
@@ -18,11 +17,12 @@ export function Review({ review, linkedReviews, runningPhase, responding, active
 }) {
   const [workflowOpen, setWorkflowOpen] = useState(true)
   let workflowStatus = '流程示例'
-  if (responding) workflowStatus = '流式响应中'
+  if (runningPhase) workflowStatus = runningPhase.title
+  else if (responding) workflowStatus = '流式响应中'
   else if (review.mockVerified) workflowStatus = review.mockFlow === 'direct' ? '模拟核查通过' : '模拟复核完成'
 
   return (
-    <article className={runningPhase ? 'review-page office-run-page office-width' : 'review-page reading-width'} aria-labelledby="review-title">
+    <article className="review-page reading-width" aria-labelledby="review-title">
       <header className="review-header">
         <div className="eyebrow"><BookOpen size={14} /> 文献综述 <span className="eyebrow-divider" /> 示例会话</div>
         <h1 id="review-title" tabIndex={-1}>{review.title}</h1>
@@ -43,59 +43,57 @@ export function Review({ review, linkedReviews, runningPhase, responding, active
         )}
       </header>
 
-      {runningPhase ? <ResearchOffice phase={runningPhase} /> : (
-        <>
-          <section className="workflow" aria-label="Agent 协作流程">
-            <button className="workflow-toggle" type="button" aria-expanded={workflowOpen} aria-controls="workflow-steps" onClick={() => setWorkflowOpen((open) => !open)}>
-              <span className="workflow-icon"><Workflow size={17} /></span>
-              <span className="workflow-label">Agent 协作流程<small>{agents.length} 个角色</small></span>
-              <span className="workflow-status">{review.mockVerified && <Check size={14} />}{workflowStatus}</span>
-              <ChevronDown className="workflow-chevron" size={15} />
-            </button>
-            <ol className="workflow-steps" id="workflow-steps" hidden={!workflowOpen}>
-              {agents.map(({ id, name, task, icon: Icon }) => (
-                <li key={id}>
-                  <Icon className="step-icon" size={15} />
-                  <span><strong>{name}</strong><small>{task}</small></span>
-                </li>
+      <section className="workflow" aria-label="Agent 协作流程">
+        <button className="workflow-toggle" type="button" aria-expanded={workflowOpen} aria-controls="workflow-steps" onClick={() => setWorkflowOpen((open) => !open)}>
+          <span className="workflow-icon"><Workflow size={17} /></span>
+          <span className="workflow-label">Agent 协作流程<small>{agents.length} 个角色</small></span>
+          <span className="workflow-status" aria-live="polite">{review.mockVerified && <Check size={14} />}{workflowStatus}</span>
+          <ChevronDown className="workflow-chevron" size={15} />
+        </button>
+        <ol className="workflow-steps" id="workflow-steps" hidden={!workflowOpen}>
+          {agents.map(({ id, name, task, icon: Icon }) => (
+            <li key={id} data-working={runningPhase?.working.includes(id)}>
+              <Icon className="step-icon" size={15} />
+              <span><strong>{name}</strong><small>{task}</small></span>
+            </li>
+          ))}
+        </ol>
+      </section>
+      {!runningPhase && (
+        <div className="review-text">
+          {responding && (
+            <p className="response-status" role="status">
+              <span aria-hidden="true" /> {review.sections.length > 0 ? '正在接收综述片段…' : '等待首段响应…'}
+            </p>
+          )}
+          {review.sections.map((section) => (
+            <section className="review-section" key={section.id}>
+              <h2 id={section.id} tabIndex={-1}>{section.heading}</h2>
+              {section.paragraphs.map((paragraph, paragraphIndex) => (
+                <p key={paragraphIndex}>
+                  {paragraph.split(/(\[\[\d+\]\])/).map((part, index) => {
+                    const match = /^\[\[(\d+)\]\]$/.exec(part)
+                    const citation = match ? Number(match[1]) - 1 : -1
+                    return review.evidence[citation] ? (
+                      <button
+                        className="inline-citation"
+                        type="button"
+                        key={index}
+                        aria-label={'查看引用 ' + (citation + 1)}
+                        aria-expanded={activeCitation === citation}
+                        aria-controls={activeCitation === citation ? 'evidence-inspector' : undefined}
+                        data-selected={activeCitation === citation}
+                        onClick={(event) => onCitation(citation, event.currentTarget)}
+                      >
+                        {citation + 1}
+                      </button>
+                    ) : part
+                  })}
+                </p>
               ))}
-            </ol>
-          </section>
-          <div className="review-text">
-            {responding && (
-              <p className="response-status" role="status">
-                <span aria-hidden="true" /> {review.sections.length > 0 ? '正在接收综述片段…' : '等待首段响应…'}
-              </p>
-            )}
-            {review.sections.map((section) => (
-              <section className="review-section" key={section.id}>
-                <h2 id={section.id} tabIndex={-1}>{section.heading}</h2>
-                {section.paragraphs.map((paragraph, paragraphIndex) => (
-                  <p key={paragraphIndex}>
-                    {paragraph.split(/(\[\[\d+\]\])/).map((part, index) => {
-                      const match = /^\[\[(\d+)\]\]$/.exec(part)
-                      const citation = match ? Number(match[1]) - 1 : -1
-                      return review.evidence[citation] ? (
-                        <button
-                          className="inline-citation"
-                          type="button"
-                          key={index}
-                          aria-label={'查看引用 ' + (citation + 1)}
-                          aria-expanded={activeCitation === citation}
-                          aria-controls={activeCitation === citation ? 'evidence-inspector' : undefined}
-                          data-selected={activeCitation === citation}
-                          onClick={(event) => onCitation(citation, event.currentTarget)}
-                        >
-                          {citation + 1}
-                        </button>
-                      ) : part
-                    })}
-                  </p>
-                ))}
-              </section>
-            ))}
-          </div>
-        </>
+            </section>
+          ))}
+        </div>
       )}
     </article>
   )
