@@ -25,7 +25,7 @@ Important claims will link back to specific papers and PDF pages. The final outp
 - Paper retrieval is limited to a configured local folder; no online paper search is planned for the initial version.
 - Cloud model APIs may receive selected paper excerpts; local retrieval does not mean fully offline processing.
 - API credentials and paper files must not be committed to this repository.
-- The `codex/frontend` branch contains a frontend prototype for the research workspace.
+- The `frontend` branch contains a frontend prototype for the research workspace.
 
 ## Frontend Prototype
 
