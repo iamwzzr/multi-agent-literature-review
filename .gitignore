@@ -1,0 +1,14 @@
+.venv/
+.env
+.env.*
+!.env.example
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.db
+*.db-*
+*.pdf
+data/papers/*
+!data/papers/.gitkeep
+data/runtime/*
+!data/runtime/.gitkeep

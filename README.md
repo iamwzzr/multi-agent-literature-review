@@ -25,3 +25,8 @@ Important claims will link back to specific papers and PDF pages. The final outp
 - Cloud model APIs may receive selected paper excerpts; local retrieval does not mean fully offline processing.
 - API credentials and paper files must not be committed to this repository.
 - **Current status:** Project initialization. This repository contains only this README; implementation and evaluation are pending.
+
+
+## Local development
+
+See [Windows / Python 3.14 setup](docs/LOCAL_SETUP.md).
