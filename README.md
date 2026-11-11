@@ -25,7 +25,7 @@ Important claims will link back to specific papers and PDF pages. The final outp
 - Paper retrieval is limited to a configured local folder; no online paper search is planned for the initial version.
 - Cloud model APIs may receive selected paper excerpts; local retrieval does not mean fully offline processing.
 - API credentials and paper files must not be committed to this repository.
-- This branch includes the frontend prototype and the Python 3.14 backend development scaffold. Agent implementation and end-to-end integration are pending.
+- This branch includes the frontend and a Python 3.14 backend for local PDF evidence retrieval, multi-agent synthesis, verification, bounded follow-up, and reviewed report streaming. Real-model acceptance requires local API credentials and papers.
 
 ## Frontend Prototype
 
@@ -69,4 +69,9 @@ Drag the sidebar divider to resize it, or use the toolbar button to hide and sho
 
 ## Local backend development
 
-See [Windows / Python 3.14 setup](docs/LOCAL_SETUP.md). The current backend scaffold exposes `/health`; the Folio v1 endpoints in [the API contract](docs/backend-api.md) are not implemented yet.
+See [Windows / Python 3.14 setup](docs/LOCAL_SETUP.md). The backend implements the Folio v1 health, NDJSON review stream, and source PDF endpoints in [the API contract](docs/backend-api.md), plus local run/audit lookup. The VS Code launch configuration uses port `35549`.
+
+
+## Backend delivery
+
+[Backend delivery checklist](docs/BACKEND_HANDOFF_CHECKLIST.md) lists the implemented features, local verification results, setup steps, and remaining work.
