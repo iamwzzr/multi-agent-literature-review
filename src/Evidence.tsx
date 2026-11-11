@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react'
 import { ArrowUpRight, BookOpen, ChevronRight, FileText, Folder, Link2, List, Quote, SlidersHorizontal, X } from 'lucide-react'
-import type { Evidence, ReviewRun } from './demo'
+import type { Evidence, ReviewTurn } from './demo'
 import type { Project } from './projects'
 
 export type InspectorTab = 'citations' | 'outline'
 
 export function EvidenceInspector({ review, citation, tab, drawer, onTab, onCitation, onPreview, onJump, onClose }: {
-  review: ReviewRun
+  review: ReviewTurn
   citation: number
   tab: InspectorTab
   drawer: boolean

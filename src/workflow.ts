@@ -75,7 +75,34 @@ const reviewPhases: RunPhase[] = [
   },
 ]
 
+const followUpPhases: RunPhase[] = [
+  {
+    title: '规划修改',
+    summary: '统筹规划正在整理这一轮的要求，找出需要调整的章节。',
+    duration: 1200,
+    working: ['planner'],
+    done: [],
+    taskDetails: { planner: '阅读你的追问，对照上一轮综述安排修改。' },
+  },
+  {
+    title: '修订综述',
+    summary: '论文分析整理相关证据，综述撰写按要求调整回复。',
+    duration: 2300,
+    working: ['analysis', 'writing'],
+    done: ['planner'],
+    taskDetails: { writing: '根据本轮要求，整理上一轮综述的内容。' },
+  },
+  {
+    title: '复核本轮修改',
+    summary: '事实核查对照示例文献，检查调整后的表述和引用。',
+    duration: 1400,
+    working: ['verification'],
+    done: ['planner', 'analysis', 'writing'],
+  },
+]
+
 export const reviewFlows = {
   direct: reviewPhases.slice(0, 3),
   revision: reviewPhases,
+  followUp: followUpPhases,
 }

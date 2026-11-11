@@ -33,7 +33,9 @@ Folio is a React, TypeScript, and Vite prototype. It opens with a centered resea
 
 Use **办公室** in the toolbar to toggle the right sidebar alongside the current prompt or report. The sidebar opens when a review starts. Select a desk to see the Agent's assignment and typing animation. Clicking a citation brings evidence into the same space, and closing it returns to the office if it was open.
 
-Projects group conversations under a working folder and support multiple knowledge-base paths. Type `@` in the composer to attach an existing conversation from the current project. Project settings and completed demo sessions are saved in the current browser tab. Paths are stored as configuration text for the prototype.
+Projects group conversations under a working folder and support multiple knowledge-base paths. Use the folder buttons in project settings to open the system chooser, or type a path directly. Browsers return the chosen folder name without its absolute path. Folio stores the resulting text as prototype configuration.
+
+Send follow-ups from the composer below a report. Each follow-up keeps the same conversation and streams a new simulated reply. Expand earlier turns to read their reports and inspect their citations. Type `@` to attach another conversation from the current project. The **…** button on each conversation lets you archive, restore, or delete it. Project settings and completed conversations are saved in the current browser tab.
 
 Run with Node.js 22.12 or later.
 
@@ -52,3 +54,6 @@ Drag the sidebar divider to resize it, or use the toolbar button to hide and sho
 - Pick **退回补查** to see verification return to the planner, two desks revise their work, and the report stream after rechecking.
 - Pick **长报告与引用**, or open the saved long report under **文献综述研究**. Check the outline jump, citation 10 on page 120, and the sample-page dialog.
 - Open **证据不足时的待核查清单** under **引用核查实验** to see an uncited sample. Switch to **空白测试项目** for the empty knowledge library and empty `@` results.
+- Open an existing report, choose **提炼要点**, and send the follow-up. Check that the sidebar still shows one conversation for both turns, and expand the first turn to inspect its citations.
+- Open a conversation’s **…** menu. Archive and restore it, then try deleting a disposable test conversation. Reload to check that the change persists in the tab.
+- In **配置项目**, use **浏览…** to choose a working folder and **添加文件夹** for knowledge paths. Edit or remove a path, then save and check the knowledge library.

@@ -24,6 +24,7 @@
   --button: #2d2d2d;
   --button-hover: #171717;
   --button-text: #fff;
+  --danger-text: #a12626;
   --focus: #484848;
   --quote-line: #aeaeae;
   --scrim: rgb(0 0 0 / 24%);
@@ -57,6 +58,7 @@
   --button: #e5e5e5;
   --button-hover: #fff;
   --button-text: #1d1d1d;
+  --danger-text: #ff9b9b;
   --focus: #dedede;
   --quote-line: #797979;
   --scrim: rgb(0 0 0 / 48%);
@@ -377,6 +379,92 @@ svg {
   font-size: .8rem;
 }
 
+.conversation-row {
+  display: flex;
+  align-items: center;
+  border-radius: 9px;
+}
+
+.conversation-row:hover {
+  background: var(--hover);
+}
+
+.conversation-row[data-current="true"] {
+  background: var(--selected);
+}
+
+.conversation-row .history-row {
+  min-width: 0;
+}
+
+.conversation-more {
+  width: 28px;
+  height: 28px;
+  margin-inline-end: 2px;
+}
+
+.conversation-more:hover,
+.conversation-row:has(.conversation-actions:popover-open) .conversation-more {
+  background: var(--selected);
+}
+
+.conversation-actions {
+  position: fixed;
+  inset: auto;
+  min-width: 148px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  background: var(--card);
+  box-shadow: var(--window-shadow);
+}
+
+.conversation-actions button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 33px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  font-size: .81rem;
+  text-align: left;
+}
+
+.conversation-actions button:hover,
+.conversation-actions button:focus-visible {
+  background: var(--hover);
+}
+
+.conversation-actions .delete-action {
+  color: var(--danger-text);
+}
+
+.archive-group {
+  margin-top: 6px;
+}
+
+.archive-summary {
+  min-height: 32px;
+  padding-inline: 5px 7px;
+  gap: 6px;
+  color: var(--muted);
+  font-size: .75rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.archive-summary::-webkit-details-marker,
+.past-turn > summary::-webkit-details-marker {
+  display: none;
+}
+
+.archive-group[open] .archive-chevron {
+  transform: rotate(90deg);
+}
+
 .sidebar-run-dot {
   flex: none;
   width: 6px;
@@ -614,6 +702,76 @@ h1 {
   white-space: pre-wrap;
 }
 
+.turn-history {
+  display: grid;
+  gap: 6px;
+  margin-top: 20px;
+}
+
+.past-turn {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+
+.past-turn > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: .79rem;
+  cursor: pointer;
+}
+
+.past-turn > summary:hover {
+  background: var(--hover);
+}
+
+.past-turn > summary strong {
+  flex: none;
+  color: var(--text);
+}
+
+.past-turn > summary span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.past-turn[open] > summary svg:last-child {
+  transform: rotate(90deg);
+}
+
+.past-turn-body {
+  padding: 12px 14px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.past-turn-body .research-question {
+  margin-top: 0;
+}
+
+.follow-up-question {
+  scroll-margin-block-start: 16px;
+}
+
+.follow-up-question > span,
+.archived-banner > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.follow-up-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 20px;
+}
+
 .workflow {
   margin-top: 21px;
   border: 1px solid var(--border);
@@ -795,6 +953,20 @@ h1 {
 .composer-dock {
   padding-block: 9px 11px;
   background: var(--surface);
+}
+
+.archived-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px 14px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  background: var(--panel);
+  font-size: .8rem;
 }
 
 .composer {
@@ -1864,20 +2036,48 @@ kbd {
   font-weight: 610;
 }
 
-.project-form input,
-.project-form textarea {
+.project-form input:not([type="file"]) {
   width: 100%;
+  min-width: 0;
   padding: 8px 9px;
   border: 1px solid var(--border);
   border-radius: 7px;
   color: var(--text);
   background: var(--surface);
-  font: inherit;
-  font-weight: 400;
+  font-family: inherit;
+  font-size: .83rem;
 }
 
-.project-form textarea {
-  resize: vertical;
+.project-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.project-field-label,
+.project-path-row,
+.project-path-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.project-field-label {
+  margin: 0;
+  font-size: .83rem;
+  font-weight: 610;
+}
+
+.project-field-label svg {
+  color: var(--muted);
+}
+
+.project-path-row .context-button {
+  min-height: 34px;
+}
+
+.project-path-actions {
+  flex-wrap: wrap;
 }
 
 .project-form p {
@@ -1892,13 +2092,13 @@ kbd {
   font-weight: 640;
 }
 
-.project-form-actions {
+.dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 7px;
 }
 
-.project-form-actions button {
+.dialog-actions button {
   min-height: 34px;
   padding: 6px 11px;
   border: 1px solid var(--border);
@@ -1907,11 +2107,53 @@ kbd {
   font-size: .81rem;
 }
 
-.project-form-actions button[type="submit"] {
+.dialog-actions button:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.dialog-actions button[type="submit"] {
   border-color: var(--button);
   color: var(--button-text);
   background: var(--button);
   font-weight: 620;
+}
+
+.dialog-actions button[type="submit"]:hover:not(:disabled) {
+  background: var(--button-hover);
+}
+
+.dialog-actions button:disabled,
+.project-path-row button:disabled,
+.project-path-actions button:disabled {
+  opacity: .6;
+}
+
+.delete-dialog {
+  width: min(396px, calc(100vw - 32px));
+}
+
+.delete-dialog-body {
+  padding: 16px;
+  background: var(--card);
+}
+
+.delete-dialog-body p {
+  margin: 0 0 16px;
+  color: var(--body-text);
+  font-size: .86rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.dialog-actions .danger-button {
+  border-color: #a12626;
+  color: #fff;
+  background: #a12626;
+  font-weight: 620;
+}
+
+.dialog-actions .danger-button:hover:not(:disabled) {
+  background: #8c1e1e;
 }
 
 .preview-paper {

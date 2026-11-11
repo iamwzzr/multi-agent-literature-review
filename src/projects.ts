@@ -10,6 +10,8 @@ export type ProjectConfig = {
 export type Project = ProjectConfig & {
   id: string
   reviews: ReviewRun[]
+  archivedReviewIds?: string[]
+  removedDemoIds?: string[]
 }
 
 export type Workspace = {
@@ -49,13 +51,25 @@ const defaultWorkspace: Workspace = {
 function addFixtures(workspace: Workspace): Workspace {
   const projects = workspace.projects.map((project) => {
     const seed = defaultWorkspace.projects.find(({ id }) => id === project.id)
-    const additions = seed?.reviews.filter((sample) => !project.reviews.some(({ id }) => id === sample.id)) ?? []
+    const additions = seed?.reviews.filter(({ id }) => (
+      !project.removedDemoIds?.includes(id) && !project.reviews.some((review) => review.id === id)
+    )) ?? []
     return additions.length ? { ...project, reviews: [...project.reviews, ...additions] } : project
   })
   for (const seed of defaultWorkspace.projects) {
     if (!projects.some(({ id, folder }) => id === seed.id || folder === seed.folder)) projects.push(seed)
   }
   return { ...workspace, projects }
+}
+
+export function removeReview(project: Project, id: string): Project {
+  const isFixture = defaultWorkspace.projects.some((seed) => seed.id === project.id && seed.reviews.some((review) => review.id === id))
+  return {
+    ...project,
+    reviews: project.reviews.filter((review) => review.id !== id),
+    archivedReviewIds: project.archivedReviewIds?.filter((reviewId) => reviewId !== id),
+    removedDemoIds: isFixture ? [...new Set([...(project.removedDemoIds ?? []), id])] : project.removedDemoIds,
+  }
 }
 
 export function readWorkspace(): Workspace {

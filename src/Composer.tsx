@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import type { KeyboardEvent, RefObject } from 'react'
-import { ArrowUp, AtSign, BookOpen, MessageSquareText, X } from 'lucide-react'
+import { ArrowUp, AtSign, BookOpen, Hourglass, MessageSquareText, X } from 'lucide-react'
 import type { ReviewRun } from './demo'
 
 type Mention = { start: number; end: number; query: string; index: number }
 
-export function Composer({ input, question, knowledgeCount, conversations, referenceIds, onChange, onReferences, onSubmit, onLibrary }: {
+export function Composer({ input, question, followUp, busy, knowledgeCount, conversations, referenceIds, onChange, onReferences, onSubmit, onLibrary }: {
   input: RefObject<HTMLTextAreaElement | null>
   question: string
+  followUp: boolean
+  busy: boolean
   knowledgeCount: number
   conversations: ReviewRun[]
   referenceIds: string[]
@@ -22,6 +24,7 @@ export function Composer({ input, question, knowledgeCount, conversations, refer
     !referenceIds.includes(review.id) && review.title.toLowerCase().includes(mention.query.toLowerCase())
   )) : []
   const selectedIndex = Math.min(mention?.index ?? 0, options.length - 1)
+  const sendLabel = busy ? '正在生成回复' : followUp ? '发送追问' : '运行示例综述'
 
   function trackMention(field: HTMLTextAreaElement) {
     const end = field.selectionStart
@@ -86,6 +89,7 @@ export function Composer({ input, question, knowledgeCount, conversations, refer
         className="composer reading-width"
         onSubmit={(event) => {
           event.preventDefault()
+          if (busy || !question.trim()) return
           setMention(null)
           onSubmit()
         }}
@@ -125,7 +129,7 @@ export function Composer({ input, question, knowledgeCount, conversations, refer
             ))}
           </div>
         )}
-        <label htmlFor="research-prompt" className="sr-only">研究问题</label>
+        <label htmlFor="research-prompt" className="sr-only">{followUp ? '追问或修改要求' : '研究问题'}</label>
         <textarea
           ref={input}
           id="research-prompt"
@@ -138,7 +142,7 @@ export function Composer({ input, question, knowledgeCount, conversations, refer
           }}
           onSelect={(event) => trackMention(event.currentTarget)}
           onKeyDown={handleKeys}
-          placeholder="输入一个研究问题…"
+          placeholder={followUp ? '继续提问，或告诉 Folio 想改哪里…' : '输入一个研究问题…'}
         />
         <div className="composer-controls">
           <div className="composer-context">
@@ -151,13 +155,13 @@ export function Composer({ input, question, knowledgeCount, conversations, refer
           </div>
           <div className="composer-submit">
             <span className="shortcut" aria-hidden="true"><kbd>↵</kbd></span>
-            <button className="send-button" type="submit" aria-label="运行示例综述" aria-keyshortcuts="Enter" title="运行示例综述" disabled={!question.trim()}>
-              <ArrowUp size={19} strokeWidth={2} />
+            <button className="send-button" type="submit" aria-label={sendLabel} aria-keyshortcuts="Enter" title={sendLabel} disabled={busy || !question.trim()}>
+              {busy ? <Hourglass size={16} /> : <ArrowUp size={19} strokeWidth={2} />}
             </button>
           </div>
         </div>
       </form>
-      <p className="composer-caption reading-width">输入 @ 可引用当前项目的其他对话</p>
+      <p className="composer-caption reading-width">{busy ? '正在生成回复，可以先写下一条消息' : 'Enter 发送 · Shift + Enter 换行 · @ 引用对话'}</p>
     </div>
   )
 }

@@ -20,15 +20,19 @@ export type ReviewSection = {
   paragraphs: string[]
 }
 
-export type ReviewRun = {
-  id: string
-  title: string
+export type ReviewTurn = {
   question: string
   referenceIds?: string[]
-  mockVerified?: true
-  mockFlow?: 'direct'
   evidence: Evidence[]
   sections: ReviewSection[]
+}
+
+export type ReviewRun = ReviewTurn & {
+  id: string
+  title: string
+  history?: ReviewTurn[]
+  mockVerified?: true
+  mockFlow?: 'direct'
 }
 
 const tracing: Paper = {
@@ -310,4 +314,48 @@ export function createDemoReview(question: string, referenceIds: string[]): Revi
       },
     ],
   }
+}
+
+export function createDemoFollowUp(review: ReviewRun, question: string, referenceIds: string[]): ReviewRun {
+  const { question: previousQuestion, referenceIds: previousReferences, evidence, sections: previous, history = [] } = review
+  const earlier = { question: previousQuestion, referenceIds: previousReferences, evidence, sections: previous }
+  const body = previous.filter(({ id }) => id !== 'revision-note')
+  let sections: ReviewSection[]
+
+  if (/精简|要点|简短|简洁|缩短|压缩|摘要|概括|shorten|summary|concise/i.test(question)) {
+    const points = body.slice(0, 3).flatMap(({ paragraphs }) => paragraphs.slice(0, 1).map((paragraph) => {
+      const text = paragraph.replace(/\[\[\d+\]\]/g, '').replace(/^•\s*/, '')
+      const firstSentence = text.match(/^[^。！？]+[。！？]?/)?.[0] ?? text
+      const citations = [...new Set(paragraph.match(/\[\[\d+\]\]/g))].join('')
+      return `• ${firstSentence}${citations}`
+    }))
+    sections = [{ id: 'key-points', heading: '精简版 · 要点', paragraphs: points.length ? points : ['上一轮没有可提炼的综述内容。'] }]
+  } else if (/局限|不足|限制|展望|未来|limitation/i.test(question)) {
+    sections = [
+      ...body.filter(({ id }) => id !== 'limitations'),
+      {
+        id: 'limitations',
+        heading: '研究局限与后续方向',
+        paragraphs: [
+          '示例文献的数量和覆盖范围有限。比较研究结果时，应保留各论文的样本、方法和评价指标，避免把单一研究的发现推广到其他场景。',
+          evidence.length ? '下一步可补充不同研究条件下的对照文献，记录尚未覆盖的问题，并逐条核对有争议的结论。' : '目前没有可定位的原文和页码。下一步应先补充相关来源，再决定哪些结论可以保留。',
+        ],
+      },
+    ]
+  } else if (/引用|核查|证据|来源|citation|evidence|source/i.test(question)) {
+    sections = [{
+      id: 'citation-check',
+      heading: '引用核查清单',
+      paragraphs: evidence.length
+        ? evidence.map(({ paper, page, excerpt }, index) => `${paper.title} · 第 ${page} 页：${excerpt}[[${index + 1}]]`)
+        : ['上一轮没有可核对的引用。补充来源和页码后，才能核查对应的结论。'],
+    }]
+  } else {
+    sections = [
+      { id: 'revision-note', heading: '本轮修改', paragraphs: [`已记录你的要求：「${question}」。下面是基于上一轮内容的模拟回复。`] },
+      ...body,
+    ]
+  }
+
+  return { ...review, question, referenceIds, sections, history: [...history, earlier], mockVerified: undefined }
 }
