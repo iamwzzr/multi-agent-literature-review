@@ -33,13 +33,13 @@ Folio is a React, TypeScript, and Vite workspace with a centered research prompt
 
 Open **设置 → 后端连接** to test and save the service address. The default is `http://localhost:35549`. The [backend handoff and API contract](docs/backend-api.md) describes the work, request and response formats, and integration checks.
 
-Use **办公室** in the toolbar to toggle the right sidebar alongside the current prompt or report. The sidebar opens when a review starts. Select a desk to see the Agent's assignment and typing animation. Clicking a citation brings evidence into the same space, and closing it returns to the office if it was open.
+Use **办公室** in the toolbar to see the Agents at work. The office opens when a review starts. Select a desk to see its assignment and typing animation. Clicking a citation opens its evidence in the same sidebar. Close the evidence to return to the current report or office.
 
 Projects group conversations under a working folder and support multiple knowledge-base paths. Hover over **知识库** to add a folder directly, or use project settings to type a path. Browsers return the chosen folder name, which Folio saves as a path relative to the working directory. Hover over **对话** and use **+** to focus a blank prompt for that project.
 
 Send follow-ups from the composer below a report. Each follow-up keeps the same conversation and streams a new reply. Expand earlier turns to read their reports and inspect their citations. Type `@` to attach another conversation from the current project. The **…** button on each conversation lets you archive, restore, or delete it. Project settings and completed conversations are saved in the current browser tab.
 
-Choose **预览综述** on a completed report to read it as a document and select an earlier version. **保存 PDF** opens the browser's A4 print preview, and **下载 Markdown** saves an editable copy. Both formats include the cited references. When the backend provides a source PDF, its citation offers **打开源 PDF** at the cited page.
+The right sidebar shows **最新综述** after each completed turn. Revisions update the full document, and replies to questions can keep the current version. Click a citation to inspect its evidence. **预览与导出** opens the document with a version selector, A4 PDF print preview, and Markdown download. When the backend provides a source PDF, its citation offers **打开源 PDF** at the cited page.
 
 Run with Node.js 22.12 or later.
 
@@ -58,8 +58,8 @@ Drag the sidebar divider to resize it, or use the toolbar button to hide and sho
 - Pick **退回补查** to see verification return to the planner, two desks revise their work, and the report stream after rechecking.
 - Pick **长报告与引用**, or open the saved long report under **文献综述研究**. Check the outline jump, citation 10 on page 120, and the sample-page dialog.
 - Open **证据不足时的待核查清单** under **引用核查实验** to see an uncited sample. Switch to **空白测试项目** for the empty knowledge library and empty `@` results.
-- Open an existing report, choose **提炼要点**, and send the follow-up. Check that the sidebar still shows one conversation for both turns, and expand the first turn to inspect its citations.
+- Open an existing report, choose **提炼要点**, and send the follow-up. Check that the right sidebar shows the revised document with its sections and references. Choose **核查引用** to test a reply that keeps the same document version.
 - Open a conversation’s **…** menu. Archive and restore it, then try deleting a disposable test conversation. Reload to check that the change persists in the tab.
 - In **配置项目**, use **浏览…** to choose a working folder and **添加文件夹** for knowledge paths. Edit or remove a path, then save and check the knowledge library.
 - In **空白测试项目**, use the row-end **+** buttons to add a folder and open a blank conversation. The sidebar shows the new conversation after the first message is sent.
-- Open the saved long report and choose **预览综述**. Check the links to the reference list, save an A4 PDF, and download a Markdown copy.
+- Open the saved long report and choose **预览与导出** in the right sidebar. Check the links to the reference list, save an A4 PDF, and download a Markdown copy.

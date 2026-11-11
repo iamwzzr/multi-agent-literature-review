@@ -46,7 +46,7 @@ Folio 默认访问 `http://localhost:35549`。本机开发时请让后端监听�
 | `conversationId` | 前端生成。同一对话的追问和重试沿用此 ID。 |
 | `project` | `id` 标识项目。`workingDirectory` 是后端可访问的工作目录。`~/` 由后端展开为服务账户的主目录，相对工作目录以服务配置的工作区根目录为基准，相对知识库路径以工作目录为基准。解析后的目录均按后端允许范围校验。 |
 | `question` | 本轮研究问题或修改要求，前端最多输入 400 字符。 |
-| `history` | 按时间顺序排列的已完成轮次。每轮包含 `question`、`sections` 和 `evidence`。首轮为空数组。 |
+| `history` | 按时间顺序排列的已完成轮次。每轮包含 `question`、`sections` 和 `evidence`，可包含 `reply` 和 `reportUnchanged: true`。首轮为空数组。末轮的 `sections` 和 `evidence` 始终是该对话当前的完整稿件。 |
 | `references` | 通过 `@` 选中的同项目后端对话。每项包含 `conversationId`、`title` 和 `turn`，其中 `turn` 是该对话最新一轮的 `question`、`sections` 和 `evidence`。 |
 
 `sections` 的元素形如 `{"id":"findings","heading":"主要发现","paragraphs":["正文[[1]]"]}`。`evidence` 是下面 `evidence` 事件中的 `item` 数组。每轮独立编号，历史和引用对话属于上下文，当前轮的证据由后端重新核对。
@@ -63,7 +63,8 @@ Folio 默认访问 `http://localhost:35549`。本机开发时请让后端监听�
 | `evidence` | `index`、`item` | `index` 从 1 连续递增。在正文出现对应 `[[n]]` 前发送。 |
 | `section` | `id`、`heading` | 声明章节。同一轮中 `id` 唯一，章节按声明顺序显示。 |
 | `delta` | `sectionId`、`paragraph`、`text` | 向已声明章节追加纯文本。`paragraph` 从 0 连续递增。同一段落可收到多次追加。 |
-| `done` | 无 | 成功的最后一行。至少有一段正文，正文内每个 `[[n]]` 都有对应证据。随后关闭响应。 |
+| `reply` | `text` | 可选。分段追加对话回复，用于说明本轮改动或回答问题。 |
+| `done` | 可选 `reportUnchanged: true` | 成功的最后一行。通常交付完整稿件，正文内每个 `[[n]]` 都有对应证据。仅回复时使用 `reportUnchanged: true`。随后关闭响应。 |
 | `error` | `code`、`message` | 流开始后的失败终止事件。`message` 会直接显示在前端。随后关闭响应。 |
 
 Agent ID 固定为 `planner`（统筹规划）、`search`（文献检索）、`analysis`（论文分析）、`writing`（综述撰写）、`verification`（事实核查）。建议先发送工作进度，核查完成后再发送最终报告的证据和正文。以下示例演示事件和引用编号的对应关系。
@@ -79,6 +80,12 @@ Agent ID 固定为 `planner`（统筹规划）、`search`（文献检索）、`a
 ```
 
 `paper.id` 应在项目内稳定。同一论文的不同页码可以对应不同引用。`year` 为整数或 `null`，`pages` 为 PDF 总页数，`page` 为从 1 开始的 PDF 页序，满足 `1 <= page <= pages`。`excerpt` 提供可核对的原文，`context` 提供上下文，`summary` 提供文献简介。证据栏会用这些字段显示来源和原文摘录。有效检索没有找到支持材料时，返回说明证据缺口的正文和 `done`，正文可没有引用。
+
+### 修订与追问
+
+收到修改请求时，以 `history` 的末轮稿件为基础。通过 `section`、`delta` 和 `evidence` 返回一份完整修订稿，包含保留的章节和此次改动。可用 `reply` 简短说明改动。前端收到 `done` 后发布新版本，右侧与导出入口同步使用该版本。
+
+若这轮只回答问题或汇报核查结果，发送 `reply` 和 `{"type":"done","reportUnchanged":true}`。此模式需要已有完整稿件和非空回复，本轮无需发送 `section`、`delta` 或 `evidence`。前端沿用上一版的稿件和引用，继续显示在右侧。流中断、出错或被停止时，上一份完成稿仍可查看和导出。
 
 ### 错误与取消
 
@@ -103,14 +110,14 @@ Agent ID 固定为 `planner`（统筹规划）、`search`（文献检索）、`a
 1. **服务和联调。** 实现健康检查和流式路由，监听 `35549`。前端开发源包括 `http://localhost:5173` 和 `http://127.0.0.1:5173`，生产构建本地预览使用 `4173`。按实际前端源配置 CORS，处理 `OPTIONS`、`GET`、`POST` 和 `Content-Type` 请求头。响应与错误都返回正确的跨域头。 [Fetch CORS 规范](https://fetch.spec.whatwg.org/#http-cors-protocol)
 2. **项目和本地 PDF。** 解析工作目录、知识库路径和符号链接，限制实际目录在服务配置允许的范围内。PDF 解析时保留页序、原文段落、文件标识和文献元数据，按工作区和项目隔离检索索引，并支持文件变动后的更新。
 3. **Agent 调度。** 规划者拆解研究问题，检索员找文献，分析员整理可比证据，撰写员生成综述，核查员核对主张和页码。证据缺失时把具体问题退回规划，并通过 `phase` 报告工作中的角色。
-4. **续写和证据。** 用 `history` 与 `references` 作为上下文，按本轮 `question` 修改或补查。后端校验每个引用的原文和页码，证据不足的地方明确标注。按协议发送 `evidence`、`section`、`delta` 和 `done`。
+4. **续写和证据。** 用 `history` 与 `references` 作为上下文，按本轮 `question` 修改或补查。后端校验每个引用的原文和页码，证据不足的地方明确标注。修订时交付完整稿件，问答时可以保留现有稿件。
 5. **运行边界。** 模型凭据和模型配置放在后端。处理无效目录、请求过大、并发、模型超时与断开连接。日志记录项目、对话 ID、阶段和错误码，按需要管理文献内容和模型输出的留存范围。
 
 ## 联调验收
 
 1. 后端启动后执行 `curl -i http://localhost:35549/api/v1/health`，确认返回 v1 就绪响应。打开 Folio「设置」并点「测试连接」，同时验证浏览器的跨域配置。
 2. 在 Folio 配置一个实际含 PDF 的知识库，输入一个研究问题。检查办公室的 Agent 状态、逐段显示的正文和可打开的引用。
-3. 在同一对话追问一次，检查后端收到相同 `conversationId` 和前一轮 `history`。打开旧回复，核对旧引用仍能定位。
+3. 在同一对话请求补写一节，检查后端收到相同 `conversationId` 和上一版稿件。完成后确认右侧显示完整新版，旧版仍可导出。再发送一次只需回复的追问，确认版本号不变。
 4. 模拟路径错误、流中途关闭和用户停止，确认前端提示失败或停止，并可重试。
 5. 提供源 PDF 接口后，验证「打开源 PDF」定位到引用页，并从「预览综述」保存一份带参考文献的 PDF。
 

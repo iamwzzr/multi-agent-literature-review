@@ -586,7 +586,8 @@ svg {
   flex: none;
 }
 
-.office-entry[aria-expanded="true"] {
+.office-entry[aria-expanded="true"],
+.report-entry[aria-expanded="true"] {
   border-color: var(--border);
   color: var(--text);
   background: var(--selected);
@@ -645,6 +646,10 @@ svg {
 
 .workspace-body[data-office-open="true"] {
   grid-template-columns: minmax(0, 1fr) min(40%, 376px);
+}
+
+.workspace-body[data-report-open="true"] {
+  grid-template-columns: minmax(0, 1fr) min(44%, 486px);
 }
 
 .workbench {
@@ -906,6 +911,15 @@ h1 {
 
 .review-text {
   margin-top: 28px;
+}
+
+.assistant-reply {
+  margin: 0 0 16px;
+  color: var(--body-text);
+  font-size: .94rem;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .review-error {
@@ -2347,6 +2361,10 @@ kbd {
 }
 
 @media (max-width: 820px) {
+  .workspace-body[data-report-open="true"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .app-window {
     grid-template-columns: minmax(0, 1fr);
     height: 100dvh;
@@ -2445,6 +2463,7 @@ kbd {
 @media (forced-colors: active) {
   .sidebar-row[aria-current="page"],
   .office-entry[aria-expanded="true"],
+  .report-entry[aria-expanded="true"],
   .prompt-suggestions button[aria-pressed="true"],
   .citation-row[aria-pressed="true"],
   .segmented button[aria-pressed="true"],

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Archive, ArchiveRestore, Building2, ChevronRight, PanelLeft } from 'lucide-react'
+import { Archive, ArchiveRestore, Building2, ChevronRight, FileText, PanelLeft } from 'lucide-react'
 import { readBackendSettings, reviewRequest, saveBackendSettings, streamBackendReview } from './backend'
 import { Composer } from './Composer'
 import { createDemoFollowUp, createDemoReview, lastTurn } from './demo'
@@ -8,7 +8,7 @@ import { EvidenceInspector, Library, PagePreview } from './Evidence'
 import type { InspectorTab } from './Evidence'
 import { pickFolder } from './folderPicker'
 import { ResearchOffice } from './Office'
-import { hasReport, ReportPreview } from './ReportPreview'
+import { latestReportSection, ReportPanel, ReportPreview, reportVersions } from './ReportPreview'
 import { readWorkspace, removeReview, saveWorkspace } from './projects'
 import type { ProjectConfig } from './projects'
 import { reportLength, revealSections } from './response'
@@ -24,7 +24,8 @@ type PendingRun = { projectId: string; review: ReviewRun } & (
   { kind: 'office'; phase: AgentActivity } | { kind: 'response'; visibleLength?: number } |
   { kind: 'connecting' } | { kind: 'failed'; message: string }
 )
-type Citation = { turn: number; index: number }
+type Citation = { turn: number; index: number; fromReport?: boolean }
+type RightPanel = 'office' | 'report' | 'closed'
 type Draft = { question: string; referenceIds: string[]; sample?: boolean }
 const emptyDraft: Draft = { question: '', referenceIds: [] }
 
@@ -45,7 +46,7 @@ export function App() {
   const [view, setView] = useState<View>({ kind: 'new' })
   const [sidebarOpen, setSidebarOpen] = useState(sidebarInline)
   const [sidebarWidth, setSidebarWidth] = useState(236)
-  const [officeOpen, setOfficeOpen] = useState(false)
+  const [panelOverride, setPanelOverride] = useState<{ scope: string; panel: RightPanel } | null>(null)
   const [projectForm, setProjectForm] = useState<'create' | 'edit' | null>(null)
   const [pickingFolder, setPickingFolder] = useState(false)
   const [folderError, setFolderError] = useState<{ projectId: string; message: string } | null>(null)
@@ -61,6 +62,7 @@ export function App() {
   const scrollPane = useRef<HTMLElement>(null)
   const sidebarToggle = useRef<HTMLButtonElement>(null)
   const officeToggle = useRef<HTMLButtonElement>(null)
+  const reportToggle = useRef<HTMLButtonElement>(null)
   const citationTrigger = useRef<HTMLButtonElement>(null)
   const settingsDialog = useRef<HTMLDialogElement>(null)
 
@@ -77,9 +79,15 @@ export function App() {
   const officeRun = busy ? activeRun : liveProjectRuns.at(-1)
   const activePhase = runPhase(activeRun)
   const savedReview = view.kind === 'review' ? project.reviews.find((review) => review.id === view.id) : undefined
+  const versions = savedReview ? reportVersions(savedReview) : []
+  const latestReport = versions.at(-1)
   const activeReview = activeRun?.review ?? savedReview
   const displayReview = activeRun?.kind === 'response' && activeRun.visibleLength !== undefined
-    ? { ...activeRun.review, sections: revealSections(activeRun.review.sections, activeRun.visibleLength) }
+    ? {
+      ...activeRun.review,
+      reply: activeRun.review.reply?.slice(0, activeRun.visibleLength),
+      sections: activeRun.review.reply ? [] : revealSections(activeRun.review.sections, activeRun.visibleLength),
+    }
     : activeReview
   const latestTurn = activeReview?.history?.length ?? 0
   const citedTurn = citation && (citation.turn === latestTurn ? displayReview : displayReview?.history?.[citation.turn])
@@ -93,7 +101,11 @@ export function App() {
   const availableConversations = project.reviews.filter((review) => (
     review.id !== activeReview?.id && !archivedIds.has(review.id) && (!useBackend || review.source === 'backend')
   ))
-  const showOffice = officeOpen && citation === null
+  const panelScope = viewKey + '/' + (savedReview ? savedReview.history?.length ?? 0 : -1) + '/' + (busy ? 'working' : activeRun ? 'failed' : 'ready')
+  const panel = panelOverride?.scope === panelScope ? panelOverride.panel : busy ? 'office' : latestReport ? 'report' : 'closed'
+  const showOffice = panel === 'office' && citation === null
+  const showReport = panel === 'report' && latestReport !== undefined && citation === null
+  const reportDrawer = showReport && !sidebarInline
 
   useEffect(() => {
     saveWorkspace(workspace)
@@ -116,6 +128,7 @@ export function App() {
 
   function navigate(next: View) {
     setView(next)
+    setPanelOverride(null)
     setCitation(null)
     citationTrigger.current = null
     if (!sidebarInline) setSidebarOpen(false)
@@ -140,7 +153,6 @@ export function App() {
   }
 
   function openReview(id: string) {
-    if (projectRuns.some((run) => run.review.id === id && run.kind === 'office')) setOfficeOpen(true)
     navigate({ kind: 'review', id })
   }
 
@@ -248,7 +260,6 @@ export function App() {
 
   function showRun(run: PendingRun) {
     setRuns((previous) => [...previous.filter((entry) => entry.review.id !== run.review.id), run])
-    setOfficeOpen(true)
     navigate({ kind: 'review', id: run.review.id })
     requestAnimationFrame(() => {
       if (run.review.history?.length) {
@@ -259,7 +270,7 @@ export function App() {
   }
 
   function streamDemoResponse(projectId: string, review: ReviewRun) {
-    const length = reportLength(review.sections)
+    const length = review.reply?.length ?? reportLength(review.sections)
     const chunkSize = Math.max(6, Math.ceil(length / 68))
     updateRun({ projectId, review, kind: 'response', visibleLength: 0 })
 
@@ -297,7 +308,7 @@ export function App() {
     const controller = new AbortController()
     backendRequests.current.set(review.id, controller)
     const projectId = project.id
-    let current: ReviewRun = { ...review, sections: [], evidence: [] }
+    let current: ReviewRun = { ...review, sections: [], evidence: [], reply: undefined }
     showRun({ projectId, review: current, kind: 'connecting' })
 
     try {
@@ -306,10 +317,10 @@ export function App() {
         if (update.kind === 'phase') {
           updateRun({ projectId, review: current, kind: 'office', phase: update.phase })
         } else {
-          current = { ...current, sections: update.sections, evidence: update.evidence }
+          current = { ...current, sections: update.sections, evidence: update.evidence, reply: update.reply }
           updateRun({ projectId, review: current, kind: 'response' })
         }
-      })
+      }, review.history?.at(-1))
       controller.signal.throwIfAborted()
       if (backendRequests.current.get(review.id) === controller) completeRun(projectId, { ...review, ...output })
     } catch (failure) {
@@ -342,9 +353,9 @@ export function App() {
     }
   }
 
-  function showCitation(turn: number, index: number, trigger: HTMLButtonElement) {
+  function showCitation(turn: number, index: number, trigger: HTMLButtonElement, fromReport?: boolean) {
     citationTrigger.current = trigger
-    setCitation({ turn, index })
+    setCitation({ turn, index, fromReport })
     setInspectorTab('citations')
   }
 
@@ -353,29 +364,36 @@ export function App() {
     requestAnimationFrame(() => sidebarToggle.current?.focus())
   }
 
-  function toggleOffice() {
-    setOfficeOpen(!showOffice)
-    if (!showOffice) {
-      setCitation(null)
-      citationTrigger.current = null
-    }
+  function togglePanel(next: 'office' | 'report') {
+    setPanelOverride({ scope: panelScope, panel: panel === next && !citation ? 'closed' : next })
+    setCitation(null)
+    citationTrigger.current = null
   }
 
-  function closeOffice() {
-    setOfficeOpen(false)
-    officeToggle.current?.focus()
+  function closePanel(current: 'office' | 'report') {
+    setPanelOverride({ scope: panelScope, panel: 'closed' })
+    const trigger = current === 'office' ? officeToggle : reportToggle
+    trigger.current?.focus()
   }
 
   function closeInspector() {
     setCitation(null)
-    requestAnimationFrame(() => citationTrigger.current?.focus({ preventScroll: true }))
+    requestAnimationFrame(() => {
+      const trigger = citationTrigger.current
+      if (trigger?.isConnected && !trigger.closest('[inert]')) trigger.focus({ preventScroll: true })
+      else reportToggle.current?.focus()
+    })
   }
 
   function jumpToSection(id: string) {
     if (!citation) return
-    if (inspectorDrawer) setCitation(null)
+    const inReport = citation.fromReport && citation.turn === latestReport?.turnIndex && panel === 'report'
+    if (inspectorDrawer || inReport) setCitation(null)
+    if (!inReport && inspectorDrawer && !sidebarInline && panel === 'report') {
+      setPanelOverride({ scope: panelScope, panel: 'closed' })
+    }
     requestAnimationFrame(() => {
-      const heading = document.getElementById(sectionAnchor(citation.turn, id))
+      const heading = document.getElementById(inReport ? latestReportSection(id) : sectionAnchor(citation.turn, id))
       heading?.closest('details')?.setAttribute('open', '')
       heading?.focus({ preventScroll: true })
       heading?.scrollIntoView({ block: 'start' })
@@ -403,7 +421,7 @@ export function App() {
 
   return (
     <div className="app-window">
-      {!sidebarDrawer && !inspectorDrawer && <a className="skip-link" href="#work-area">跳至工作区</a>}
+      {!sidebarDrawer && !inspectorDrawer && !reportDrawer && <a className="skip-link" href="#work-area">跳至工作区</a>}
       {sidebarOpen && (
         <>
           <button className="sidebar-scrim" type="button" tabIndex={-1} aria-label="关闭侧边栏" onClick={closeSidebar} />
@@ -460,15 +478,20 @@ export function App() {
             </div>
           </div>
           <div className="toolbar-actions">
-            <button ref={officeToggle} className="context-button office-entry" type="button" aria-expanded={showOffice} aria-controls={showOffice ? 'office-panel' : undefined} onClick={toggleOffice}>
+            {latestReport && (
+              <button ref={reportToggle} className="context-button report-entry" type="button" aria-expanded={showReport} aria-controls={panel === 'report' ? 'report-panel' : undefined} onClick={() => togglePanel('report')}>
+                <FileText size={15} /> 综述
+              </button>
+            )}
+            <button ref={officeToggle} className="context-button office-entry" type="button" aria-expanded={showOffice} aria-controls={showOffice ? 'office-panel' : undefined} onClick={() => togglePanel('office')}>
               <Building2 size={15} /> 办公室
             </button>
             {!useBackend && view.kind !== 'library' && <span className="demo-badge"><span /> 模拟数据</span>}
           </div>
         </header>
 
-        <div className="workspace-body" data-office-open={showOffice}>
-          <div className="workbench" inert={inspectorDrawer}>
+        <div className="workspace-body" data-office-open={showOffice} data-report-open={showReport}>
+          <div className="workbench" inert={inspectorDrawer || reportDrawer}>
             <main className={view.kind === 'new' ? 'reader reader-start' : 'reader'} id="work-area" ref={scrollPane} tabIndex={-1}>
               {displayReview && (
                 <Review
@@ -484,7 +507,8 @@ export function App() {
                   activeCitation={inspectorTab === 'citations' ? citation ?? undefined : undefined}
                   onCitation={showCitation}
                   onConversation={openReview}
-                  onPreviewReport={savedReview && hasReport(savedReview) ? () => setReportPreview(savedReview) : undefined}
+                  reportVisible={showReport}
+                  onPreviewReport={savedReview && latestReport ? () => setReportPreview(savedReview) : undefined}
                   onSuggestion={activeRun || activeArchived || question.trim() ? undefined : (prompt) => {
                     updateDraft({ question: prompt })
                     input.current?.focus()
@@ -518,8 +542,24 @@ export function App() {
               key={project.id}
               phase={runPhase(officeRun)}
               onOpenRun={officeRun && officeRun !== activeRun ? () => openReview(officeRun.review.id) : undefined}
-              onClose={closeOffice}
+              onClose={() => closePanel('office')}
             />
+          )}
+          {panel === 'report' && savedReview && latestReport && (
+            <>
+              {reportDrawer && <button className="inspector-scrim" type="button" tabIndex={-1} aria-label="关闭综述面板" onClick={() => closePanel('report')} />}
+              <ReportPanel
+                review={savedReview}
+                turn={latestReport.turn}
+                version={versions.length}
+                busy={busy}
+                drawer={reportDrawer}
+                hidden={citation !== null}
+                onCitation={(index, trigger) => showCitation(latestReport.turnIndex, index, trigger, true)}
+                onPreview={() => setReportPreview(savedReview)}
+                onClose={() => closePanel('report')}
+              />
+            </>
           )}
           {citedTurn && citation && (
             <>

@@ -11,8 +11,8 @@ const agentIds = new Set<string>(agents.map(({ id }) => id))
 
 export type BackendSettings = { url: string; useDemo: boolean }
 type EvidenceItem = Omit<Evidence, 'source' | 'pdfUrl'>
-type ReviewOutput = Pick<ReviewTurn, 'sections' | 'evidence'>
-type ContextTurn = { question: string; sections: ReviewSection[]; evidence: EvidenceItem[] }
+type ReviewOutput = Pick<ReviewTurn, 'sections' | 'evidence' | 'reply' | 'reportUnchanged'>
+type ContextTurn = Omit<ReviewOutput, 'evidence'> & { question: string; evidence: EvidenceItem[] }
 type ReviewRequest = {
   conversationId: string
   project: { id: string; name: string; workingDirectory: string; knowledgePaths: string[] }
@@ -51,11 +51,13 @@ export function saveBackendSettings(settings: BackendSettings) {
   }
 }
 
-function toContext({ question, sections, evidence }: ReviewTurn): ContextTurn {
+function toContext({ question, sections, evidence, reply, reportUnchanged }: ReviewTurn): ContextTurn {
   return {
     question,
     sections,
     evidence: evidence.map(({ paper, page, excerpt, context }) => ({ paper, page, excerpt, context })),
+    reply,
+    reportUnchanged,
   }
 }
 
@@ -153,7 +155,13 @@ function invalidStream() {
   return new Error('后端返回的数据不符合 Folio v1 流式接口。')
 }
 
-export async function streamBackendReview(url: string, request: ReviewRequest, signal: AbortSignal, onUpdate: (update: ReviewUpdate) => void): Promise<ReviewOutput> {
+export async function streamBackendReview(
+  url: string,
+  request: ReviewRequest,
+  signal: AbortSignal,
+  onUpdate: (update: ReviewUpdate) => void,
+  previousReport?: ReviewTurn,
+): Promise<ReviewOutput> {
   const response = await backendFetch(url, '/reviews/stream', {
     method: 'POST',
     headers: { Accept: streamType, 'Content-Type': 'application/json' },
@@ -167,6 +175,8 @@ export async function streamBackendReview(url: string, request: ReviewRequest, s
 
   let sections: ReviewSection[] = []
   let evidence: Evidence[] = []
+  let reply: string | undefined
+  let reportUnchanged: true | undefined
   let completed = false
 
   function consumeLine(line: string) {
@@ -183,6 +193,10 @@ export async function streamBackendReview(url: string, request: ReviewRequest, s
         if (!isPhase(event)) throw invalidStream()
         onUpdate({ kind: 'phase', phase: event })
         return
+      case 'reply':
+        if (typeof event.text !== 'string') throw invalidStream()
+        reply = (reply ?? '') + event.text
+        break
       case 'evidence': {
         if (event.index !== evidence.length + 1 || !isEvidence(event.item)) throw invalidStream()
         const { paper, page, excerpt, context } = event.item
@@ -212,6 +226,15 @@ export async function streamBackendReview(url: string, request: ReviewRequest, s
         break
       }
       case 'done': {
+        if (event.reportUnchanged === true) {
+          if (!isText(reply) || !previousReport?.sections.length || sections.length || evidence.length) throw invalidStream()
+          sections = previousReport.sections
+          evidence = previousReport.evidence
+          reportUnchanged = true
+          completed = true
+          return
+        }
+        if (event.reportUnchanged !== undefined) throw invalidStream()
         const paragraphs = sections.flatMap((section) => section.paragraphs)
         if (!paragraphs.some(isText) || paragraphs.some((text) => Array.from(text.matchAll(/\[\[(\d+)\]\]/g), ([, index]) => Number(index))
           .some((index) => index < 1 || index > evidence.length))) throw invalidStream()
@@ -224,7 +247,7 @@ export async function streamBackendReview(url: string, request: ReviewRequest, s
       default:
         throw invalidStream()
     }
-    onUpdate({ kind: 'report', sections, evidence })
+    onUpdate({ kind: 'report', sections, evidence, reply })
   }
 
   const reader = response.body.getReader()
@@ -248,7 +271,7 @@ export async function streamBackendReview(url: string, request: ReviewRequest, s
       }
     }
     if (!completed) throw new Error('后端连接已结束，本轮综述尚未完成。')
-    return { sections, evidence }
+    return { sections, evidence, reply, reportUnchanged }
   } finally {
     await reader.cancel().catch(() => undefined)
     reader.releaseLock()

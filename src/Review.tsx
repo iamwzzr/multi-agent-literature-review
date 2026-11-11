@@ -8,7 +8,7 @@ import { agents } from './workflow'
 import type { AgentActivity } from './workflow'
 
 const followUpSuggestions = [
-  { label: '提炼要点', prompt: '把上一轮综述精简成几个要点，保留引用。', icon: ListChecks },
+  { label: '提炼要点', prompt: '把每一节精简成要点，保留原有章节和引用。', icon: ListChecks },
   { label: '补充局限', prompt: '补充一节研究局限和后续方向。', icon: NotebookPen },
   { label: '核查引用', prompt: '列出上一轮引用的文献、页码和原文依据。', icon: BadgeCheck },
 ]
@@ -36,22 +36,25 @@ function ConversationLinks({ turn, conversations, onConversation }: {
   )
 }
 
-function ReportBody({ turn, index, responding, partial, activeCitation, onCitation }: {
+function ReportBody({ turn, index, responding, partial, hideSections, activeCitation, onCitation }: {
   turn: ReviewTurn
   index: number
   responding?: boolean
   partial?: boolean
+  hideSections?: boolean
   activeCitation?: { turn: number; index: number }
   onCitation: (turn: number, index: number, trigger: HTMLButtonElement) => void
 }) {
+  if (hideSections && !responding && !turn.reply) return null
   return (
     <div className="review-text">
       {responding && (
         <p className="response-status" role="status">
-          <span aria-hidden="true" /> {turn.sections.length > 0 ? '正在接收综述片段…' : '等待首段响应…'}
+          <span aria-hidden="true" /> {turn.reply ? '正在接收回复…' : turn.sections.length > 0 ? '正在接收综述片段…' : '等待首段响应…'}
         </p>
       )}
-      {turn.sections.map((section) => (
+      {turn.reply && <p className="assistant-reply">{turn.reply}</p>}
+      {!hideSections && turn.sections.map((section) => (
         <section className="review-section" key={section.id}>
           <h2 id={sectionAnchor(index, section.id)} tabIndex={-1}>{section.heading}</h2>
           {section.paragraphs.map((paragraph, paragraphIndex) => (
@@ -83,7 +86,7 @@ function ReportBody({ turn, index, responding, partial, activeCitation, onCitati
   )
 }
 
-export function Review({ review, conversations, runningPhase, responding, connecting, error, onRetry, onSettings, activeCitation, onCitation, onConversation, onSuggestion, onPreviewReport }: {
+export function Review({ review, conversations, runningPhase, responding, connecting, error, onRetry, onSettings, activeCitation, onCitation, onConversation, onSuggestion, onPreviewReport, reportVisible }: {
   review: ReviewRun
   conversations: ReviewRun[]
   runningPhase?: AgentActivity
@@ -97,6 +100,7 @@ export function Review({ review, conversations, runningPhase, responding, connec
   onConversation: (id: string) => void
   onSuggestion?: (prompt: string) => void
   onPreviewReport?: () => void
+  reportVisible: boolean
 }) {
   const [workflowOpen, setWorkflowOpen] = useState(true)
   const history = review.history ?? []
@@ -108,6 +112,7 @@ export function Review({ review, conversations, runningPhase, responding, connec
   else if (connecting) workflowStatus = '正在连接后端…'
   else if (runningPhase) workflowStatus = runningPhase.title
   else if (responding) workflowStatus = '流式响应中'
+  else if (review.reportUnchanged) workflowStatus = '回复完成'
   else if (review.mockVerified) workflowStatus = followUp ? '模拟修订完成' : review.mockFlow === 'direct' ? '模拟核查通过' : '模拟复核完成'
 
   return (
@@ -115,7 +120,7 @@ export function Review({ review, conversations, runningPhase, responding, connec
       <header className="review-header">
         <div className="review-header-actions">
           <div className="eyebrow"><BookOpen size={14} /> 文献综述 {demo && <><span className="eyebrow-divider" /> 示例会话</>}</div>
-          {onPreviewReport && <button className="context-button" type="button" aria-haspopup="dialog" onClick={onPreviewReport}><FileText size={14} /> 预览综述</button>}
+          {onPreviewReport && !reportVisible && <button className="context-button" type="button" aria-haspopup="dialog" onClick={onPreviewReport}><FileText size={14} /> 预览综述</button>}
         </div>
         <h1 id="review-title" tabIndex={-1}>{review.title}</h1>
         {!followUp && review.question !== review.title && (
@@ -136,7 +141,7 @@ export function Review({ review, conversations, runningPhase, responding, connec
                 <div className="past-turn-body">
                   <div className="research-question"><span>你的消息</span><p>{turn.question}</p></div>
                   <ConversationLinks turn={turn} conversations={conversations} onConversation={onConversation} />
-                  <ReportBody turn={turn} index={index} activeCitation={activeCitation} onCitation={onCitation} />
+                  <ReportBody turn={turn} index={index} hideSections={turn.reportUnchanged} activeCitation={activeCitation} onCitation={onCitation} />
                 </div>
               </details>
             ))}
@@ -174,12 +179,13 @@ export function Review({ review, conversations, runningPhase, responding, connec
           </div>
         </div>
       )}
-      {(!runningPhase || (!demo && review.sections.length > 0)) && (
+      {(!runningPhase || (!demo && (review.sections.length > 0 || review.reply))) && (
         <ReportBody
           turn={review}
           index={history.length}
           responding={responding}
           partial={!demo && !backendComplete}
+          hideSections={reportVisible && !responding && !error}
           activeCitation={activeCitation}
           onCitation={onCitation}
         />
