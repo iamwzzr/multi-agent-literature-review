@@ -2,7 +2,7 @@
 
 ## 已配置
 
-- 本地分支：`backend/zhouxinhao/bootstrap`（尚未提交或推送）
+- 本地分支：`backend/zhouxinhao/bootstrap`（本地提交，尚未推送）
 - 虚拟环境：项目根目录 `.venv`
 - 后端代码：`backend/app`
 - 本地论文：`data/papers`，PDF 不提交 Git

@@ -12,3 +12,9 @@ data/papers/*
 !data/papers/.gitkeep
 data/runtime/*
 !data/runtime/.gitkeep
+
+# Frontend
+node_modules/
+dist/
+*.local
+.DS_Store

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Folio 多智能体文献综述工作台" />
+    <meta name="theme-color" content="#ffffff" />
+    <script>
+      try {
+        const theme = localStorage.getItem('folio.theme')
+        if (theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.dataset.theme = 'dark'
+          document.querySelector('meta[name="theme-color"]').content = '#1d1d1d'
+        }
+      } catch {
+        // Storage can be unavailable in restricted browser contexts.
+      }
+    </script>
+    <link rel="icon" type="image/svg+xml" href="/folio.svg" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>Folio · 文献综述工作台</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
