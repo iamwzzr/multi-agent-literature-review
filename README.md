@@ -50,6 +50,8 @@ npm run dev
 
 `npm run build` checks TypeScript and writes the static frontend to `dist/`. `npm run preview` serves that build locally. The web app manifest lets supported browsers install the workspace in a standalone window when served from localhost or HTTPS.
 
+Push to `frontend` to build and publish `dist/` with the [GitHub Pages workflow](.github/workflows/pages.yml). In **Settings → Pages**, set the publishing source to **GitHub Actions**. If the `github-pages` environment restricts deployment branches, allow `frontend`. The hosted frontend can run the built-in samples, and live reviews use the configured backend.
+
 Drag the sidebar divider to resize it, or use the toolbar button to hide and show it. **设置** in the lower-left corner lets you choose Light, Dark, or System appearance. Light is the default, and the browser remembers your choice. [Apple's macOS design guide](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos) · [Split views](https://developer.apple.com/design/human-interface-guidelines/split-views) · [Materials](https://developer.apple.com/design/human-interface-guidelines/materials)
 
 ### Manual frontend checks
