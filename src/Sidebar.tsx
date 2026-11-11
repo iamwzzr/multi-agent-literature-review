@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { Archive, ArchiveRestore, ChevronRight, Ellipsis, Folder, FolderOpen, FolderPlus, LibraryBig, MessageSquareText, Settings, SlidersHorizontal, SquarePen, Trash2, X } from 'lucide-react'
+import { Archive, ArchiveRestore, ChevronRight, Ellipsis, Folder, FolderOpen, FolderPlus, LibraryBig, MessageSquareText, Plus, Settings, SlidersHorizontal, SquarePen, Trash2, X } from 'lucide-react'
 import type { ReviewRun } from './demo'
 import type { Project } from './projects'
 
@@ -7,8 +7,8 @@ const folioIcon = `${import.meta.env.BASE_URL}folio.svg`
 const minWidth = 184
 const maxWidth = 336
 
-export function Sidebar({ projects, projectId, reviews, archivedIds, runningIds, activeReviewId, view, drawer, width,
-  onProject, onReview, onArchive, onDelete, onNew, onLibrary, onCreateProject, onEditProject, onSettings, onClose, onResize }: {
+export function Sidebar({ projects, projectId, reviews, archivedIds, runningIds, activeReviewId, view, drawer, width, pickingFolder, folderError,
+  onProject, onReview, onArchive, onDelete, onNew, onNewConversation, onLibrary, onAddKnowledge, onCreateProject, onEditProject, onSettings, onClose, onResize }: {
   projects: Project[]
   projectId: string
   reviews: ReviewRun[]
@@ -18,12 +18,16 @@ export function Sidebar({ projects, projectId, reviews, archivedIds, runningIds,
   view: 'new' | 'review' | 'library'
   drawer: boolean
   width: number
+  pickingFolder: boolean
+  folderError?: string
   onProject: (id: string) => void
   onReview: (id: string) => void
   onArchive: (id: string, archive: boolean) => void
   onDelete: (review: ReviewRun) => void
   onNew: () => void
+  onNewConversation: () => void
   onLibrary: () => void
+  onAddKnowledge: () => void
   onCreateProject: () => void
   onEditProject: () => void
   onSettings: () => void
@@ -124,7 +128,9 @@ export function Sidebar({ projects, projectId, reviews, archivedIds, runningIds,
                         <LibraryBig size={15} /> <span>知识库</span> <span className="sidebar-count">{project.knowledgePaths.length}</span>
                       </button>
                       <button className="icon-button project-config" type="button" aria-label="配置知识库" title="配置知识库路径" onClick={onEditProject}><SlidersHorizontal size={14} /></button>
+                      <button className="icon-button project-shortcut" type="button" aria-label="添加知识库文件夹" title="添加知识库文件夹" disabled={pickingFolder} onClick={onAddKnowledge}><Plus size={16} /></button>
                     </div>
+                    {folderError && <p className="project-empty" role="status">{folderError}</p>}
                     {project.knowledgePaths.length > 0 && (
                       <ul className="knowledge-paths" aria-label="知识库路径">
                         {project.knowledgePaths.map((path) => (
@@ -132,7 +138,10 @@ export function Sidebar({ projects, projectId, reviews, archivedIds, runningIds,
                         ))}
                       </ul>
                     )}
-                    <h3 className="project-section-label">对话</h3>
+                    <div className="project-section-heading">
+                      <h3 className="project-section-label">对话</h3>
+                      <button className="icon-button project-shortcut" type="button" aria-label="新建对话" title="新建对话" onClick={onNewConversation}><Plus size={16} /></button>
+                    </div>
                     {activeReviews.length > 0 ? reviewList(activeReviews, false) : (
                       <p className="project-empty">{archivedReviews.length ? '没有未归档的对话。' : '提交研究问题后，对话会显示在这里。'}</p>
                     )}

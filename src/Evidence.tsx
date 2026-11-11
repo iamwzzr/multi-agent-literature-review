@@ -1,9 +1,13 @@
 import { useEffect, useRef } from 'react'
 import { ArrowUpRight, BookOpen, ChevronRight, FileText, Folder, Link2, List, Quote, SlidersHorizontal, X } from 'lucide-react'
-import type { Evidence, ReviewTurn } from './demo'
+import type { Evidence, Paper, ReviewTurn } from './demo'
 import type { Project } from './projects'
 
 export type InspectorTab = 'citations' | 'outline'
+
+function paperAttribution({ author, year }: Paper) {
+  return year === null ? author : author + ' · ' + year
+}
 
 export function EvidenceInspector({ review, citation, tab, drawer, onTab, onCitation, onPreview, onJump, onClose }: {
   review: ReviewTurn
@@ -57,14 +61,14 @@ export function EvidenceInspector({ review, citation, tab, drawer, onTab, onCita
               <span className="citation-tag"><Link2 size={13} /> 引用 {String(citation + 1).padStart(2, '0')}</span>
               <span className="page-tag">第 {evidence.page} 页</span>
             </div>
-            <h3 lang="en">{evidence.paper.title}</h3>
-            <p className="paper-meta">{evidence.paper.author} · {evidence.paper.year} · 示例文献</p>
+            <h3 lang={evidence.source ? undefined : 'en'}>{evidence.paper.title}</h3>
+            <p className="paper-meta">{paperAttribution(evidence.paper)}{!evidence.source && ' · 示例文献'}</p>
             <blockquote className="excerpt-quote">
               <Quote size={15} aria-hidden="true" />
               <p>{evidence.excerpt}</p>
             </blockquote>
             <button className="preview-button" type="button" onClick={() => onPreview(evidence)}>
-              <FileText size={15} /> 查看示例页 <ArrowUpRight className="preview-arrow" size={14} />
+              <FileText size={15} /> {evidence.source ? '查看原文摘录' : '查看示例页'} <ArrowUpRight className="preview-arrow" size={14} />
             </button>
           </section>
 
@@ -74,8 +78,8 @@ export function EvidenceInspector({ review, citation, tab, drawer, onTab, onCita
               <span>{review.evidence.length} 条</span>
             </div>
             <ol className="citation-list">
-              {review.evidence.map(({ paper, page }, index) => (
-                <li key={paper.id}>
+              {review.evidence.map(({ paper, page, source }, index) => (
+                <li key={index}>
                   <button
                     className="citation-row"
                     type="button"
@@ -85,7 +89,7 @@ export function EvidenceInspector({ review, citation, tab, drawer, onTab, onCita
                   >
                     <span className="citation-number">{String(index + 1).padStart(2, '0')}</span>
                     <span className="citation-info">
-                      <strong lang="en">{paper.title}</strong>
+                      <strong lang={source ? undefined : 'en'}>{paper.title}</strong>
                       <small>{paper.author} · 第 {page} 页</small>
                     </span>
                   </button>
@@ -119,7 +123,9 @@ export function Library({ project, onConfigure, onPreview }: {
   onConfigure: () => void
   onPreview: (evidence: Evidence) => void
 }) {
-  const evidenceList = [...new Map(project.reviews.flatMap((review) => review.evidence.map((evidence) => [evidence.paper.id, evidence] as const))).values()]
+  const evidenceList = new Map(project.reviews.flatMap((review) => review.evidence.map((evidence) => (
+    [(evidence.source ?? 'demo') + ':' + evidence.paper.id, evidence] as const
+  ))))
 
   return (
     <section className="library-page reading-width" aria-labelledby="library-title">
@@ -138,16 +144,16 @@ export function Library({ project, onConfigure, onPreview }: {
         ) : <p>为这个项目添加一个或多个知识库路径。</p>}
       </section>
       <section className="library-section" aria-labelledby="library-papers-title">
-        <div className="library-section-heading"><h2 id="library-papers-title">示例文献</h2></div>
-        {evidenceList.length > 0 ? (
+        <div className="library-section-heading"><h2 id="library-papers-title">引用文献</h2></div>
+        {evidenceList.size > 0 ? (
           <ul className="library-list">
-            {evidenceList.map((evidence) => (
-              <li key={evidence.paper.id}>
+            {[...evidenceList].map(([key, evidence]) => (
+              <li key={key}>
                 <button className="library-paper" type="button" onClick={() => onPreview(evidence)}>
                   <span className="paper-icon"><FileText size={20} /></span>
                   <span className="library-paper-info">
-                    <strong lang="en">{evidence.paper.title}</strong>
-                    <small>{evidence.paper.author} · {evidence.paper.year} · {evidence.paper.pages} 页</small>
+                    <strong lang={evidence.source ? undefined : 'en'}>{evidence.paper.title}</strong>
+                    <small>{paperAttribution(evidence.paper)} · {evidence.paper.pages} 页{!evidence.source && ' · 示例'}</small>
                     <span>{evidence.paper.summary}</span>
                   </span>
                   <ArrowUpRight size={16} />
@@ -155,7 +161,7 @@ export function Library({ project, onConfigure, onPreview }: {
               </li>
             ))}
           </ul>
-        ) : <p>运行一篇示例综述后，它使用的示例文献会显示在这里。</p>}
+        ) : <p>完成综述后，引用的文献会显示在这里。</p>}
       </section>
     </section>
   )
@@ -171,15 +177,15 @@ export function PagePreview({ evidence, onClose }: { evidence: Evidence; onClose
   return (
     <dialog className="page-dialog" ref={dialog} onClose={onClose} aria-labelledby="page-preview-title">
       <div className="dialog-toolbar">
-        <span><FileText size={16} /> 示例原文 · 第 {evidence.page} 页</span>
-        <button className="icon-button" type="button" aria-label="关闭示例页" onClick={() => dialog.current?.close()}>
+        <span><FileText size={16} /> {evidence.source ? '原文摘录' : '示例原文'} · 第 {evidence.page} 页</span>
+        <button className="icon-button" type="button" aria-label={evidence.source ? '关闭原文摘录' : '关闭示例页'} onClick={() => dialog.current?.close()}>
           <X size={17} />
         </button>
       </div>
       <div className="preview-paper">
-        <div className="eyebrow">示例文献</div>
-        <h2 id="page-preview-title" lang="en">{evidence.paper.title}</h2>
-        <p className="paper-meta">{evidence.paper.author} · {evidence.paper.year}</p>
+        {!evidence.source && <div className="eyebrow">示例文献</div>}
+        <h2 id="page-preview-title" lang={evidence.source ? undefined : 'en'}>{evidence.paper.title}</h2>
+        <p className="paper-meta">{paperAttribution(evidence.paper)}</p>
         <p>{evidence.context}</p>
         <blockquote><mark>{evidence.excerpt}</mark></blockquote>
         <div className="paper-page-number">{evidence.page} / {evidence.paper.pages}</div>

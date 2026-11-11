@@ -2,7 +2,7 @@ import { useId, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { ArrowUpRight, CornerUpLeft, X } from 'lucide-react'
 import { agents } from './workflow'
-import type { AgentId, RunPhase } from './workflow'
+import type { AgentActivity, AgentId } from './workflow'
 
 const roomArt = `${import.meta.env.BASE_URL}office-room.webp`
 const fishArt = new URL(`${import.meta.env.BASE_URL}office-fish.webp`, document.baseURI).href
@@ -15,14 +15,14 @@ const stationPositions: Record<AgentId, [number, number]> = {
 }
 const statusLabels = { waiting: '待命', working: '工作中', done: '已完成', feedback: '待补查' }
 
-function deskStatus(id: AgentId, phase?: RunPhase) {
+function deskStatus(id: AgentId, phase?: AgentActivity) {
   if (phase?.working.includes(id)) return 'working'
   if (id === 'verification' && phase?.feedback) return 'feedback'
   if (phase?.done.includes(id)) return 'done'
   return 'waiting'
 }
 
-export function ResearchOffice({ phase, onOpenRun, onClose }: { phase?: RunPhase; onOpenRun?: () => void; onClose: () => void }) {
+export function ResearchOffice({ phase, onOpenRun, onClose }: { phase?: AgentActivity; onOpenRun?: () => void; onClose: () => void }) {
   const titleId = useId()
   const detailId = useId()
   const [selected, setSelected] = useState<AgentId | null>(null)

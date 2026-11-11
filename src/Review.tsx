@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { ArrowUpRight, AtSign, BadgeCheck, BookOpen, Check, ChevronDown, ChevronRight, FlaskConical, History, ListChecks, MessageSquareText, NotebookPen, Workflow } from 'lucide-react'
+import { ArrowUpRight, AtSign, BadgeCheck, BookOpen, Check, ChevronDown, ChevronRight, CircleAlert, FlaskConical, History, ListChecks, MessageSquareText, NotebookPen, RotateCw, Settings, Workflow } from 'lucide-react'
 import { testPrompts } from './demo'
 import type { ReviewRun, ReviewTurn } from './demo'
+import { visibleParagraph } from './response'
 import { agents } from './workflow'
-import type { RunPhase } from './workflow'
+import type { AgentActivity } from './workflow'
 
 const followUpSuggestions = [
   { label: '提炼要点', prompt: '把上一轮综述精简成几个要点，保留引用。', icon: ListChecks },
@@ -13,7 +14,7 @@ const followUpSuggestions = [
 ]
 
 export function sectionAnchor(turn: number, id: string) {
-  return turn === 0 ? id : 'turn-' + turn + '-' + id
+  return 'review-section-' + turn + '-' + id
 }
 
 function ConversationLinks({ turn, conversations, onConversation }: {
@@ -35,10 +36,11 @@ function ConversationLinks({ turn, conversations, onConversation }: {
   )
 }
 
-function ReportBody({ turn, index, responding, activeCitation, onCitation }: {
+function ReportBody({ turn, index, responding, partial, activeCitation, onCitation }: {
   turn: ReviewTurn
   index: number
   responding?: boolean
+  partial?: boolean
   activeCitation?: { turn: number; index: number }
   onCitation: (turn: number, index: number, trigger: HTMLButtonElement) => void
 }) {
@@ -54,7 +56,7 @@ function ReportBody({ turn, index, responding, activeCitation, onCitation }: {
           <h2 id={sectionAnchor(index, section.id)} tabIndex={-1}>{section.heading}</h2>
           {section.paragraphs.map((paragraph, paragraphIndex) => (
             <p key={paragraphIndex}>
-              {paragraph.split(/(\[\[\d+\]\])/).map((part, partIndex) => {
+              {(partial ? visibleParagraph(paragraph) : paragraph).split(/(\[\[\d+\]\])/).map((part, partIndex) => {
                 const match = /^\[\[(\d+)\]\]$/.exec(part)
                 const citation = match ? Number(match[1]) - 1 : -1
                 const selected = activeCitation?.turn === index && activeCitation.index === citation
@@ -81,11 +83,15 @@ function ReportBody({ turn, index, responding, activeCitation, onCitation }: {
   )
 }
 
-export function Review({ review, conversations, runningPhase, responding, activeCitation, onCitation, onConversation, onSuggestion }: {
+export function Review({ review, conversations, runningPhase, responding, connecting, error, onRetry, onSettings, activeCitation, onCitation, onConversation, onSuggestion }: {
   review: ReviewRun
   conversations: ReviewRun[]
-  runningPhase?: RunPhase
+  runningPhase?: AgentActivity
   responding: boolean
+  connecting: boolean
+  error?: string
+  onRetry?: () => void
+  onSettings: () => void
   activeCitation?: { turn: number; index: number }
   onCitation: (turn: number, index: number, trigger: HTMLButtonElement) => void
   onConversation: (id: string) => void
@@ -94,15 +100,19 @@ export function Review({ review, conversations, runningPhase, responding, active
   const [workflowOpen, setWorkflowOpen] = useState(true)
   const history = review.history ?? []
   const followUp = history.length > 0
-  let workflowStatus = '流程示例'
-  if (runningPhase) workflowStatus = runningPhase.title
+  const demo = review.source !== 'backend'
+  const backendComplete = !demo && !runningPhase && !responding && !connecting && !error
+  let workflowStatus = demo ? '流程示例' : '综述已完成'
+  if (error) workflowStatus = '本轮未完成'
+  else if (connecting) workflowStatus = '正在连接后端…'
+  else if (runningPhase) workflowStatus = runningPhase.title
   else if (responding) workflowStatus = '流式响应中'
   else if (review.mockVerified) workflowStatus = followUp ? '模拟修订完成' : review.mockFlow === 'direct' ? '模拟核查通过' : '模拟复核完成'
 
   return (
     <article className="review-page reading-width" aria-labelledby="review-title">
       <header className="review-header">
-        <div className="eyebrow"><BookOpen size={14} /> 文献综述 <span className="eyebrow-divider" /> 示例会话</div>
+        <div className="eyebrow"><BookOpen size={14} /> 文献综述 {demo && <><span className="eyebrow-divider" /> 示例会话</>}</div>
         <h1 id="review-title" tabIndex={-1}>{review.title}</h1>
         {!followUp && review.question !== review.title && (
           <div className="research-question">
@@ -139,7 +149,7 @@ export function Review({ review, conversations, runningPhase, responding, active
         <button className="workflow-toggle" type="button" aria-expanded={workflowOpen} aria-controls="workflow-steps" onClick={() => setWorkflowOpen((open) => !open)}>
           <span className="workflow-icon"><Workflow size={17} /></span>
           <span className="workflow-label">Agent 协作流程<small>{agents.length} 个角色</small></span>
-          <span className="workflow-status" aria-live="polite">{review.mockVerified && <Check size={14} />}{workflowStatus}</span>
+          <span className="workflow-status" aria-live="polite">{(review.mockVerified || backendComplete) && <Check size={14} />}{workflowStatus}</span>
           <ChevronDown className="workflow-chevron" size={15} />
         </button>
         <ol className="workflow-steps" id="workflow-steps" hidden={!workflowOpen}>
@@ -151,7 +161,25 @@ export function Review({ review, conversations, runningPhase, responding, active
           ))}
         </ol>
       </section>
-      {!runningPhase && <ReportBody turn={review} index={history.length} responding={responding} activeCitation={activeCitation} onCitation={onCitation} />}
+      {error && (
+        <div className="review-error">
+          <p role="alert"><CircleAlert size={16} /> <span>{error}</span></p>
+          <div>
+            {onRetry && <button className="context-button" type="button" onClick={onRetry}><RotateCw size={14} /> 重试</button>}
+            <button className="context-button" type="button" onClick={onSettings}><Settings size={14} /> 后端设置</button>
+          </div>
+        </div>
+      )}
+      {(!runningPhase || (!demo && review.sections.length > 0)) && (
+        <ReportBody
+          turn={review}
+          index={history.length}
+          responding={responding}
+          partial={!demo && !backendComplete}
+          activeCitation={activeCitation}
+          onCitation={onCitation}
+        />
+      )}
       {onSuggestion && (
         <div className="follow-up-actions" role="group" aria-label="快捷追问">
           {followUpSuggestions.map(({ label, prompt, icon: Icon }) => (
@@ -176,7 +204,7 @@ export function NewReview({ children, question, onPrompt }: { children: ReactNod
       <section className="test-samples" aria-labelledby="test-samples-title">
         <div className="test-samples-heading">
           <h2 id="test-samples-title"><FlaskConical size={14} /> 测试样例</h2>
-          <span>点选后按 Enter 运行</span>
+          <span>点选后按 Enter 模拟运行</span>
         </div>
         <div className="prompt-suggestions">
           {testPrompts.map((sample) => (

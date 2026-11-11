@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import type { KeyboardEvent, RefObject } from 'react'
-import { ArrowUp, AtSign, BookOpen, Hourglass, MessageSquareText, X } from 'lucide-react'
+import { ArrowUp, AtSign, BookOpen, Hourglass, MessageSquareText, Square, X } from 'lucide-react'
 import type { ReviewRun } from './demo'
 
 type Mention = { start: number; end: number; query: string; index: number }
 
-export function Composer({ input, question, followUp, busy, knowledgeCount, conversations, referenceIds, onChange, onReferences, onSubmit, onLibrary }: {
+export function Composer({ input, question, followUp, busy, demo, knowledgeCount, conversations, referenceIds, onChange, onReferences, onSubmit, onLibrary, onStop }: {
   input: RefObject<HTMLTextAreaElement | null>
   question: string
   followUp: boolean
   busy: boolean
+  demo: boolean
   knowledgeCount: number
   conversations: ReviewRun[]
   referenceIds: string[]
@@ -17,6 +18,7 @@ export function Composer({ input, question, followUp, busy, knowledgeCount, conv
   onReferences: (ids: string[]) => void
   onSubmit: () => void
   onLibrary: () => void
+  onStop?: () => void
 }) {
   const [mention, setMention] = useState<Mention | null>(null)
   const linked = conversations.filter((review) => referenceIds.includes(review.id))
@@ -24,7 +26,7 @@ export function Composer({ input, question, followUp, busy, knowledgeCount, conv
     !referenceIds.includes(review.id) && review.title.toLowerCase().includes(mention.query.toLowerCase())
   )) : []
   const selectedIndex = Math.min(mention?.index ?? 0, options.length - 1)
-  const sendLabel = busy ? '正在生成回复' : followUp ? '发送追问' : '运行示例综述'
+  const sendLabel = busy ? '正在生成回复' : followUp ? '发送追问' : demo ? '运行示例综述' : '生成综述'
 
   function trackMention(field: HTMLTextAreaElement) {
     const end = field.selectionStart
@@ -155,9 +157,13 @@ export function Composer({ input, question, followUp, busy, knowledgeCount, conv
           </div>
           <div className="composer-submit">
             <span className="shortcut" aria-hidden="true"><kbd>↵</kbd></span>
-            <button className="send-button" type="submit" aria-label={sendLabel} aria-keyshortcuts="Enter" title={sendLabel} disabled={busy || !question.trim()}>
-              {busy ? <Hourglass size={16} /> : <ArrowUp size={19} strokeWidth={2} />}
-            </button>
+            {onStop ? (
+              <button className="send-button" type="button" aria-label="停止生成" title="停止生成" onClick={onStop}><Square size={13} fill="currentColor" /></button>
+            ) : (
+              <button className="send-button" type="submit" aria-label={sendLabel} aria-keyshortcuts="Enter" title={sendLabel} disabled={busy || !question.trim()}>
+                {busy ? <Hourglass size={16} /> : <ArrowUp size={19} strokeWidth={2} />}
+              </button>
+            )}
           </div>
         </div>
       </form>

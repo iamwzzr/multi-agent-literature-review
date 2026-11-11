@@ -2,7 +2,7 @@ export type Paper = {
   id: string
   title: string
   author: string
-  year: number
+  year: number | null
   pages: number
   summary: string
 }
@@ -12,6 +12,7 @@ export type Evidence = {
   page: number
   excerpt: string
   context: string
+  source?: 'backend'
 }
 
 export type ReviewSection = {
@@ -31,8 +32,13 @@ export type ReviewRun = ReviewTurn & {
   id: string
   title: string
   history?: ReviewTurn[]
+  source?: 'backend'
   mockVerified?: true
   mockFlow?: 'direct'
+}
+
+export function lastTurn({ question, referenceIds, evidence, sections }: ReviewRun): ReviewTurn {
+  return { question, referenceIds, evidence, sections }
 }
 
 const tracing: Paper = {
@@ -317,8 +323,8 @@ export function createDemoReview(question: string, referenceIds: string[]): Revi
 }
 
 export function createDemoFollowUp(review: ReviewRun, question: string, referenceIds: string[]): ReviewRun {
-  const { question: previousQuestion, referenceIds: previousReferences, evidence, sections: previous, history = [] } = review
-  const earlier = { question: previousQuestion, referenceIds: previousReferences, evidence, sections: previous }
+  const { evidence, sections: previous, history = [] } = review
+  const earlier = lastTurn(review)
   const body = previous.filter(({ id }) => id !== 'revision-note')
   let sections: ReviewSection[]
 

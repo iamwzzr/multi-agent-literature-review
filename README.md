@@ -29,13 +29,15 @@ Important claims will link back to specific papers and PDF pages. The final outp
 
 ## Frontend Prototype
 
-Folio is a React, TypeScript, and Vite prototype. It opens with a centered research prompt. Submit a question to see all five Agents in a shared research office. After the simulated verification, the interface waits for the first response chunk, then streams the report a piece at a time. Click a visible numbered citation to open its evidence panel. The reports, papers, and excerpts use demo data.
+Folio is a React, TypeScript, and Vite workspace with a centered research prompt and an office showing the five Agents. It streams reports and opens an evidence panel from numbered citations. New research questions use the configured backend by default. The home page test cards and the optional demo mode use local fixtures.
+
+Open **设置 → 后端连接** to test and save the service address. The default is `http://localhost:35549`. The [backend handoff and API contract](docs/backend-api.md) describes the work, request and response formats, and integration checks.
 
 Use **办公室** in the toolbar to toggle the right sidebar alongside the current prompt or report. The sidebar opens when a review starts. Select a desk to see the Agent's assignment and typing animation. Clicking a citation brings evidence into the same space, and closing it returns to the office if it was open.
 
-Projects group conversations under a working folder and support multiple knowledge-base paths. Use the folder buttons in project settings to open the system chooser, or type a path directly. Browsers return the chosen folder name without its absolute path. Folio stores the resulting text as prototype configuration.
+Projects group conversations under a working folder and support multiple knowledge-base paths. Hover over **知识库** to add a folder directly, or use project settings to type a path. Browsers return the chosen folder name, which Folio saves as a path relative to the working directory. Hover over **对话** and use **+** to focus a blank prompt for that project.
 
-Send follow-ups from the composer below a report. Each follow-up keeps the same conversation and streams a new simulated reply. Expand earlier turns to read their reports and inspect their citations. Type `@` to attach another conversation from the current project. The **…** button on each conversation lets you archive, restore, or delete it. Project settings and completed conversations are saved in the current browser tab.
+Send follow-ups from the composer below a report. Each follow-up keeps the same conversation and streams a new reply. Expand earlier turns to read their reports and inspect their citations. Type `@` to attach another conversation from the current project. The **…** button on each conversation lets you archive, restore, or delete it. Project settings and completed conversations are saved in the current browser tab.
 
 Run with Node.js 22.12 or later.
 
@@ -57,3 +59,4 @@ Drag the sidebar divider to resize it, or use the toolbar button to hide and sho
 - Open an existing report, choose **提炼要点**, and send the follow-up. Check that the sidebar still shows one conversation for both turns, and expand the first turn to inspect its citations.
 - Open a conversation’s **…** menu. Archive and restore it, then try deleting a disposable test conversation. Reload to check that the change persists in the tab.
 - In **配置项目**, use **浏览…** to choose a working folder and **添加文件夹** for knowledge paths. Edit or remove a path, then save and check the knowledge library.
+- In **空白测试项目**, use the row-end **+** buttons to add a folder and open a blank conversation. The sidebar shows the new conversation after the first message is sent.

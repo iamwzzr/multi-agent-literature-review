@@ -10,15 +10,16 @@ export const agents = [
 
 export type AgentId = typeof agents[number]['id']
 
-export type RunPhase = {
+export type AgentActivity = {
   title: string
   summary: string
-  duration: number
   working: AgentId[]
   done: AgentId[]
-  feedback?: true
+  feedback?: boolean
   taskDetails?: Partial<Record<AgentId, string>>
 }
+
+type RunPhase = AgentActivity & { duration: number }
 
 const reviewPhases: RunPhase[] = [
   {

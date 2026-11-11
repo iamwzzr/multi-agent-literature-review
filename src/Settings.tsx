@@ -1,6 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent, RefObject } from 'react'
-import { Folder, FolderOpen, FolderPlus, LibraryBig, Monitor, Moon, Plus, Settings, Sun, X } from 'lucide-react'
+import { Folder, FolderOpen, FolderPlus, LibraryBig, Monitor, Moon, Plus, Server, Settings, Sun, X } from 'lucide-react'
+import { checkBackend, defaultBackendUrl, normalizeBackendUrl } from './backend'
+import type { BackendSettings } from './backend'
+import { pickFolder } from './folderPicker'
 import type { Project, ProjectConfig } from './projects'
 import { useMediaQuery } from './useMediaQuery'
 
@@ -11,11 +14,12 @@ const themes = {
 }
 type Theme = keyof typeof themes
 type FolderTarget = 'work' | 'knowledge'
-type DirectoryPickerWindow = Window & {
-  showDirectoryPicker?: (options: { id: string; mode: 'read' }) => Promise<FileSystemDirectoryHandle>
-}
 
-export function AppearanceSettings({ dialog }: { dialog: RefObject<HTMLDialogElement | null> }) {
+export function WorkspaceSettings({ dialog, backend, onBackendSave }: {
+  dialog: RefObject<HTMLDialogElement | null>
+  backend: BackendSettings
+  onBackendSave: (settings: BackendSettings) => void
+}) {
   const [theme, setTheme] = useState<Theme>(() => {
     try {
       const savedTheme = localStorage.getItem('folio.theme')
@@ -27,6 +31,10 @@ export function AppearanceSettings({ dialog }: { dialog: RefObject<HTMLDialogEle
   })
   const systemDark = useMediaQuery('(prefers-color-scheme: dark)')
   const dark = theme === 'dark' || (theme === 'system' && systemDark)
+  const [url, setUrl] = useState(backend.url)
+  const [useDemo, setUseDemo] = useState(backend.useDemo)
+  const [status, setStatus] = useState<{ kind: 'checking' | 'success' | 'error'; text: string } | null>(null)
+  const connectionTest = useRef<AbortController | null>(null)
 
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light'
@@ -42,12 +50,60 @@ export function AppearanceSettings({ dialog }: { dialog: RefObject<HTMLDialogEle
     }
   }
 
+  function resetStatus() {
+    connectionTest.current?.abort()
+    connectionTest.current = null
+    setStatus(null)
+  }
+
+  function address() {
+    try {
+      return normalizeBackendUrl(url)
+    } catch (failure) {
+      setStatus({ kind: 'error', text: failure instanceof Error ? failure.message : '后端地址无效。' })
+    }
+  }
+
+  async function testConnection() {
+    resetStatus()
+    const normalized = address()
+    if (!normalized) return
+    const controller = new AbortController()
+    connectionTest.current = controller
+    setStatus({ kind: 'checking', text: '正在测试连接…' })
+    try {
+      await checkBackend(normalized, controller.signal)
+      if (!controller.signal.aborted) setStatus({ kind: 'success', text: '连接成功，后端支持 Folio v1。' })
+    } catch (failure) {
+      if (!controller.signal.aborted) {
+        setStatus({ kind: 'error', text: failure instanceof Error ? failure.message : '连接失败。' })
+      }
+    } finally {
+      if (connectionTest.current === controller) connectionTest.current = null
+    }
+  }
+
+  function saveBackend(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    resetStatus()
+    const normalized = address()
+    if (!normalized) return
+    onBackendSave({ url: normalized, useDemo })
+    setUrl(normalized)
+    setStatus({ kind: 'success', text: '已保存后端设置。' })
+  }
+
   return (
     <dialog
       ref={dialog}
       id="workspace-settings"
       className="page-dialog settings-dialog"
       aria-labelledby="settings-title"
+      onClose={() => {
+        resetStatus()
+        setUrl(backend.url)
+        setUseDemo(backend.useDemo)
+      }}
       onClick={(event) => {
         if (event.target === event.currentTarget) event.currentTarget.close()
       }}
@@ -69,6 +125,32 @@ export function AppearanceSettings({ dialog }: { dialog: RefObject<HTMLDialogEle
           ))}
         </div>
       </fieldset>
+      <form className="backend-settings" onSubmit={saveBackend}>
+        <h2><Server size={15} /> 后端连接</h2>
+        <label htmlFor="backend-url">后端地址</label>
+        <input
+          id="backend-url"
+          value={url}
+          placeholder={defaultBackendUrl}
+          inputMode="url"
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(event) => {
+            resetStatus()
+            setUrl(event.target.value)
+          }}
+        />
+        <label className="demo-mode-option">
+          <input type="checkbox" checked={useDemo} onChange={(event) => setUseDemo(event.target.checked)} />
+          新建综述使用模拟数据
+        </label>
+        {status && <p className="backend-status" data-error={status.kind === 'error'} role={status.kind === 'error' ? 'alert' : 'status'}>{status.text}</p>}
+        <div className="dialog-actions backend-actions">
+          <button type="button" onClick={() => { resetStatus(); setUrl(defaultBackendUrl) }}>恢复默认地址</button>
+          <button type="button" disabled={status?.kind === 'checking'} onClick={() => void testConnection()}>测试连接</button>
+          <button type="submit">保存设置</button>
+        </div>
+      </form>
     </dialog>
   )
 }
@@ -81,8 +163,6 @@ export function ProjectSettings({ project, otherFolders, onSave, onClose }: {
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const nameInput = useRef<HTMLInputElement>(null)
-  const directoryInput = useRef<HTMLInputElement>(null)
-  const fallbackTarget = useRef<FolderTarget>('work')
   const nextPathId = useRef(project?.knowledgePaths.length ?? 0)
   const [name, setName] = useState(project?.name ?? '')
   const [folder, setFolder] = useState(project?.folder ?? '')
@@ -116,27 +196,12 @@ export function ProjectSettings({ project, otherFolders, onSave, onClose }: {
 
   async function browse(target: FolderTarget) {
     setPathNotice('')
-    const pickerWindow = window as DirectoryPickerWindow
-    if (!pickerWindow.showDirectoryPicker) {
-      const input = directoryInput.current
-      if (!input || !('webkitdirectory' in input)) {
-        setPathNotice('此浏览器无法选择文件夹，请手动填写路径。')
-        return
-      }
-      fallbackTarget.current = target
-      input.webkitdirectory = true
-      input.click()
-      return
-    }
-
     setPicking(true)
     try {
-      const handle = await pickerWindow.showDirectoryPicker({ id: 'folio-' + target, mode: 'read' })
-      if (dialog.current?.open) acceptFolder(target, handle.name)
+      const name = await pickFolder('folio-' + target, dialog.current ?? undefined)
+      if (name && dialog.current?.open) acceptFolder(target, name)
     } catch (failure) {
-      if (!(failure instanceof DOMException && failure.name === 'AbortError')) {
-        setPathNotice('无法打开文件夹选择器。你可以重试或手动填写路径。')
-      }
+      setPathNotice(failure instanceof Error ? failure.message : '无法选择文件夹。')
     } finally {
       setPicking(false)
     }
@@ -204,13 +269,6 @@ export function ProjectSettings({ project, otherFolders, onSave, onClose }: {
             <button className="context-button" id="add-manual-path" type="button" onClick={() => addPath()}><Plus size={15} /> 手动填写</button>
           </div>
         </section>
-        <input ref={directoryInput} type="file" multiple hidden onChange={(event) => {
-          const field = event.currentTarget
-          const selectedName = field.files?.[0]?.webkitRelativePath.split('/')[0]
-          field.value = ''
-          if (selectedName) acceptFolder(fallbackTarget.current, selectedName)
-          else setPathNotice('未取得目录名。空文件夹可以手动填写路径。')
-        }} />
         <p>浏览器只会填入目录名。需要完整路径时，可以直接编辑。</p>
         {pathNotice && <p className="form-error" role="status">{pathNotice}</p>}
         {error && <p className="form-error" role="alert">{error}</p>}

@@ -1,5 +1,9 @@
 import type { ReviewSection } from './demo'
 
+export function visibleParagraph(text: string) {
+  return text.replace(/\[(?:\[\d*\]?)?$/u, '').replace(/[\uD800-\uDBFF]$/u, '')
+}
+
 export function reportLength(sections: ReviewSection[]) {
   return sections.reduce((length, { heading, paragraphs }) => (
     length + heading.length + paragraphs.reduce((total, paragraph) => total + paragraph.length, 0)
@@ -20,7 +24,7 @@ export function revealSections(sections: ReviewSection[], length: number): Revie
       const end = Math.min(remaining, paragraph.length)
       const text = end === paragraph.length
         ? paragraph
-        : paragraph.slice(0, end).replace(/\[(?:\[\d*\]?)?$/u, '').replace(/[\uD800-\uDBFF]$/u, '')
+        : visibleParagraph(paragraph.slice(0, end))
       if (text) paragraphs.push(text)
       remaining -= end
     }
