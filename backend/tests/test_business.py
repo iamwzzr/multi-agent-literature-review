@@ -6,16 +6,21 @@ from pathlib import Path
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from app.config import Settings
 from app.errors import AppError
-from app.library import Library, resolve_project, search
+from app.library import Library, SearchIndex, resolve_project
 from app.main import create_app
 from app.model import ModelClient
 from app.schemas import Draft, Findings, Plan, ReviewCheck, ReviewRequest
 from app.store import Store
+
+
+def local_client(app):
+    return TestClient(app, base_url='http://127.0.0.1', client=('127.0.0.1', 50000))
 
 
 def make_pdf(path, text='The retrieval pipeline improved evidence coverage in this experiment. The study used five papers.'):
@@ -104,14 +109,16 @@ def test_full_review_pdf_and_persistence(setup):
     config, payload, papers = setup
     model = ScriptedModel()
     app = create_app(config, model)
-    with TestClient(app) as client:
+    with local_client(app) as client:
         assert client.get('/api/v1/health').json() == {'status': 'ok', 'apiVersion': 'v1'}
         preflight = client.options('/api/v1/reviews/stream', headers={
             'Origin': 'http://127.0.0.1:5173', 'Access-Control-Request-Method': 'POST',
             'Access-Control-Request-Headers': 'content-type'})
         assert preflight.status_code == 200
         response = client.post('/api/v1/reviews/stream', json=payload)
-        report = output(events(response))
+        stream_events = events(response)
+        report = output(stream_events)
+        assert stream_events[-1]['verification'] == 'passed'
         assert len(report['evidence']) == 1
         item = report['evidence'][0]
         assert item['page'] == 1 and item['paper']['pages'] == 1
@@ -133,7 +140,7 @@ def test_full_review_pdf_and_persistence(setup):
 def test_targeted_followup_and_reviewed_version(setup):
     config, payload, _ = setup
     model = ScriptedModel(fail_once=True)
-    with TestClient(create_app(config, model)) as client:
+    with local_client(create_app(config, model)) as client:
         response = client.post('/api/v1/reviews/stream', json=payload)
         lines = events(response)
         assert any(e.get('feedback') for e in lines)
@@ -147,7 +154,7 @@ def test_targeted_followup_and_reviewed_version(setup):
 def test_unverified_paragraphs_never_published(setup):
     config, payload, _ = setup
     model = ScriptedModel(always_fail=True)
-    with TestClient(create_app(config, model)) as client:
+    with local_client(create_app(config, model)) as client:
         response = client.post('/api/v1/reviews/stream', json=payload)
         report = output(events(response))
         assert model.verifications == 2
@@ -159,7 +166,7 @@ def test_unverified_paragraphs_never_published(setup):
 def test_fabricated_quote_removed(setup):
     config, payload, _ = setup
     model = ScriptedModel(bad_quote=True)
-    with TestClient(create_app(config, model)) as client:
+    with local_client(create_app(config, model)) as client:
         report = output(events(client.post('/api/v1/reviews/stream', json=payload)))
         assert report['evidence'] == []
         assert 'synthesizer' not in model.roles
@@ -168,7 +175,7 @@ def test_fabricated_quote_removed(setup):
 def test_revision_and_unchanged_audit(setup):
     config, payload, _ = setup
     model = ScriptedModel()
-    with TestClient(create_app(config, model)) as client:
+    with local_client(create_app(config, model)) as client:
         original = output(events(client.post('/api/v1/reviews/stream', json=payload)))
         payload['history'] = [{'question': payload['question'], **original}]
         payload['question'] = '核查已有引用'
@@ -186,7 +193,7 @@ def test_revision_and_unchanged_audit(setup):
 
 def test_paths_missing_model_errors_and_cors(setup, tmp_path):
     config, payload, _ = setup
-    with TestClient(create_app(config)) as client:
+    with local_client(create_app(config)) as client:
         response = client.post('/api/v1/reviews/stream', json=payload, headers={'Origin': 'http://localhost:5173'})
         assert response.status_code == 503
         assert response.json()['error']['code'] == 'MODEL_NOT_CONFIGURED'
@@ -202,7 +209,7 @@ def test_paths_missing_model_errors_and_cors(setup, tmp_path):
 def test_request_size_limit(setup):
     config, payload, _ = setup
     config.max_request_bytes = 1024
-    with TestClient(create_app(config, ScriptedModel())) as client:
+    with local_client(create_app(config, ScriptedModel())) as client:
         response = client.post('/api/v1/reviews/stream', content=b'x'*1025, headers={'Content-Type': 'application/json'})
         assert response.status_code == 413
 
@@ -215,8 +222,9 @@ def test_index_updates_removals_and_isolation(setup):
     scope = resolve_project(project, config)
     chunks, _ = asyncio.run(library.index(project.id, scope))
     old_id = chunks[0]['paper']['id']
-    assert search(chunks, 'retrieval coverage')
-    assert not search(chunks, 'quantum superconductivity')
+    index = SearchIndex(chunks)
+    assert index.search('retrieval coverage')
+    assert not index.search('quantum superconductivity')
     make_pdf(papers/'study.pdf', 'A changed retrieval paper explains a new experimental result and limitations.')
     with pytest.raises(AppError, match='论文已修改'):
         library.source(project.id, old_id)
@@ -224,7 +232,77 @@ def test_index_updates_removals_and_isolation(setup):
     assert changed[0]['paper']['id'] != old_id
     (papers/'study.pdf').unlink()
     empty, _ = asyncio.run(library.index(project.id, scope))
-    assert empty == [] and store.papers(scope.id) == []
+    assert empty == [] and store.papers(scope.id) == {}
+
+
+def test_unchanged_index_avoids_reading_pdf_contents(setup, monkeypatch):
+    config, payload, _ = setup
+    store = Store(config.runtime_dir)
+    library = Library(config, store)
+    project = ReviewRequest.model_validate(payload).project
+    scope = resolve_project(project, config)
+    original, _ = asyncio.run(library.index(project.id, scope))
+
+    def unexpected_digest(path):
+        pytest.fail(f'Unchanged PDF should not be rehashed: {path.name}')
+
+    monkeypatch.setattr('app.library.digest_file', unexpected_digest)
+    warmed, _ = asyncio.run(library.index(project.id, scope))
+    assert warmed == original
+
+
+def test_validate_and_list_nested_knowledge_folders(setup, tmp_path):
+    config, payload, _ = setup
+    library = tmp_path / 'reading' / 'papers'
+    library.mkdir(parents=True)
+    payload['project']['knowledgePaths'] = ['reading/papers']
+    with local_client(create_app(config, ScriptedModel())) as client:
+        listing = client.get('/api/v1/folders', params={'path': str(library.parent)}).json()
+        assert listing['folders'] == [{'name': 'papers', 'path': str(library.resolve())}]
+        validated = client.post('/api/v1/projects/validate', json=payload['project'])
+        assert validated.status_code == 200
+        assert validated.json()['knowledgePaths'] == [str(library.resolve())]
+        assert validated.json()['workingDirectoryLocked'] is False
+        output(events(client.post('/api/v1/reviews/stream', json=payload)))
+        assert client.post('/api/v1/projects/validate', json=payload['project']).json()['workingDirectoryLocked'] is True
+        moved = {**payload['project'], 'workingDirectory': str(library), 'knowledgePaths': []}
+        assert client.post('/api/v1/projects/validate', json=moved).status_code == 409
+
+
+def test_access_and_conversation_record_deletion(setup):
+    config, payload, _ = setup
+    config.access_token = SecretStr('local-test-token')
+    with local_client(create_app(config, ScriptedModel())) as client:
+        assert client.get('/api/v1/health').status_code == 401
+        client.headers['Authorization'] = 'Bearer local-test-token'
+        response = client.post('/api/v1/reviews/stream', json=payload)
+        output(events(response))
+        run_path = '/api/v1/runs/' + response.headers['x-run-id']
+        status = client.get(run_path, params={'projectId': 'project-1', 'includeArtifacts': False}).json()
+        assert status['status'] == 'completed' and 'artifacts' not in status
+        assert client.get(run_path, params={'projectId': 'other'}).status_code == 404
+        assert client.delete('/api/v1/projects/other/conversations/conversation-1').status_code == 204
+        assert client.get(run_path).status_code == 200
+        assert client.delete('/api/v1/projects/project-1/conversations/conversation-1').status_code == 204
+        assert client.get(run_path).status_code == 404
+        with Store(config.runtime_dir).connect() as db:
+            assert db.execute('SELECT COUNT(*) FROM artifacts').fetchone()[0] == 0
+
+
+def test_remote_api_requires_tls_and_access_token(setup):
+    config, _, _ = setup
+    remote = ('192.0.2.10', 50000)
+    path = '/api/v1/health'
+    with TestClient(create_app(config), base_url='https://folio.example', client=remote) as client:
+        assert client.get(path).status_code == 403
+    config.access_token = SecretStr('local-test-token')
+    app = create_app(config)
+    headers = {'Authorization': 'Bearer local-test-token'}
+    with TestClient(app, base_url='http://folio.example', client=remote) as client:
+        assert client.get(path, headers=headers).status_code == 403
+    with TestClient(app, base_url='https://folio.example', client=remote) as client:
+        assert client.get(path).status_code == 401
+        assert client.get(path, headers=headers).status_code == 200
 
 
 def test_blank_pdf_and_invalid_pdf(setup):
@@ -232,7 +310,7 @@ def test_blank_pdf_and_invalid_pdf(setup):
     writer = PdfWriter()
     writer.add_blank_page(width=612, height=792)
     writer.write(str(papers/'study.pdf'))
-    with TestClient(create_app(config, ScriptedModel())) as client:
+    with local_client(create_app(config, ScriptedModel())) as client:
         report = output(events(client.post('/api/v1/reviews/stream', json=payload)))
         assert not report['evidence']
         assert 'OCR' in str(report)
@@ -245,7 +323,7 @@ def test_blank_pdf_and_invalid_pdf(setup):
 def test_concurrency_rejection(setup):
     config, payload, _ = setup
     app = create_app(config, ScriptedModel())
-    with TestClient(app) as client:
+    with local_client(app) as client:
         app.state.active.add(payload['project']['id'])
         assert client.post('/api/v1/reviews/stream', json=payload).status_code == 409
         app.state.active.clear()
@@ -289,7 +367,7 @@ def test_stream_uses_actual_http_model_adapter(setup):
         result = await scripted.complete(message['role'], message['task'], message['data'], schemas[message['role']])
         return httpx.Response(200,json={'choices':[{'message':{'content':result.model_dump_json()}}]})
     adapter = ModelClient(config,httpx.MockTransport(provider))
-    with TestClient(create_app(config,adapter)) as client:
+    with local_client(create_app(config,adapter)) as client:
         report = output(events(client.post('/api/v1/reviews/stream',json=payload)))
         assert report['evidence'] and report['sections']
         assert scripted.roles == ['coordinator','researcher','synthesizer','reviewer']
@@ -298,12 +376,12 @@ def test_stream_uses_actual_http_model_adapter(setup):
 def test_budget_and_pdf_size_boundaries(setup):
     config, payload, _ = setup
     config.max_model_calls = 4
-    with TestClient(create_app(config, ScriptedModel(always_fail=True))) as client:
+    with local_client(create_app(config, ScriptedModel(always_fail=True))) as client:
         lines = events(client.post('/api/v1/reviews/stream', json=payload))
         assert lines[-1]['type'] == 'error'
         assert lines[-1]['code'] == 'MODEL_BUDGET_EXCEEDED'
     config.max_pdf_bytes = 10
-    with TestClient(create_app(config, ScriptedModel())) as client:
+    with local_client(create_app(config, ScriptedModel())) as client:
         assert events(client.post('/api/v1/reviews/stream', json=payload))[-1]['code'] == 'PDF_TOO_LARGE'
 
 
@@ -314,7 +392,7 @@ def test_invalid_citations_fail_closed(setup):
             if role == 'synthesizer':
                 return Draft(sections=[{'id':'findings','heading':'Findings','paragraphs':['Invented claim[[99]]']}])
             return await super().complete(role, instruction, data, schema)
-    with TestClient(create_app(config, WrongCitations())) as client:
+    with local_client(create_app(config, WrongCitations())) as client:
         report = output(events(client.post('/api/v1/reviews/stream', json=payload)))
         assert not report['evidence']
         assert not any('Invented claim' in p for s in report['sections'] for p in s['paragraphs'])
@@ -322,7 +400,7 @@ def test_invalid_citations_fail_closed(setup):
 
 def test_project_path_collision_is_rejected(setup, tmp_path):
     config, payload, _ = setup
-    with TestClient(create_app(config, ScriptedModel())) as client:
+    with local_client(create_app(config, ScriptedModel())) as client:
         output(events(client.post('/api/v1/reviews/stream', json=payload)))
         other = tmp_path/'different'
         other.mkdir()
@@ -346,7 +424,7 @@ def test_page_numbers_and_contextual_revision(setup, tmp_path):
             if role == 'synthesizer':
                 contexts.append(data['context'])
             return await super().complete(role, instruction, data, schema)
-    with TestClient(create_app(config, ContextModel())) as client:
+    with local_client(create_app(config, ContextModel())) as client:
         original = output(events(client.post('/api/v1/reviews/stream', json=payload)))
         assert original['evidence'][0]['page'] == 2
         assert original['evidence'][0]['paper']['pages'] == 2
@@ -366,7 +444,7 @@ def test_model_failure_is_stream_error_and_releases_slot(setup):
         async def complete(self, *args):
             raise AppError('MODEL_TIMEOUT', '模型调用超时', 503)
     app = create_app(config, BrokenModel())
-    with TestClient(app) as client:
+    with local_client(app) as client:
         lines = events(client.post('/api/v1/reviews/stream', json=payload))
         assert lines[-1] == {'type': 'error', 'code': 'MODEL_TIMEOUT', 'message': '模型调用超时'}
         assert not app.state.active

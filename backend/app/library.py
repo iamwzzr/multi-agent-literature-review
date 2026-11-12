@@ -5,7 +5,7 @@ import math
 import re
 import sys
 import subprocess
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,6 +22,13 @@ def contained(path: Path, roots: list[Path]) -> bool:
 def digest_file(path):
     with path.open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def file_fingerprint(path, max_bytes):
+    stat = path.stat()
+    if stat.st_size > max_bytes:
+        raise AppError('PDF_TOO_LARGE', 'PDF 超过单文件大小限制，请缩小文献集。')
+    return ':'.join(map(str, (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)))
 
 
 def normalize(text):
@@ -67,6 +74,32 @@ def resolve_project(project: Project, config: Settings) -> Scope:
     return Scope(hashlib.sha256(key.encode()).hexdigest(), work, libraries)
 
 
+def list_folders(config: Settings, path: str | None):
+    roots = sorted({root.expanduser().resolve() for root in config.allowed_roots if root.expanduser().is_dir()})
+    current = parent = None
+    truncated = False
+    try:
+        if path is None:
+            folders = roots
+        else:
+            current = (config.workspace_root / Path(path).expanduser()).resolve(strict=True)
+            if not current.is_dir() or not contained(current, roots):
+                raise ValueError()
+            parent = current.parent if current.parent != current and contained(current.parent, roots) else None
+            folders = []
+            for entry in current.iterdir():
+                if entry.is_dir() and not entry.is_symlink() and contained(entry.resolve(), roots):
+                    if len(folders) == 250:
+                        truncated = True
+                        break
+                    folders.append(entry)
+    except (OSError, ValueError, RuntimeError):
+        raise AppError('INVALID_KNOWLEDGE_PATH', '目录不存在或超出 ALLOWED_ROOTS 配置范围。') from None
+    return {'current': str(current) if current else None, 'parent': str(parent) if parent else None,
+            'folders': [{'name': folder.name or str(folder), 'path': str(folder)}
+                        for folder in sorted(folders, key=lambda p: p.name.casefold())], 'truncated': truncated}
+
+
 async def parse_pdf(path: Path, config: Settings):
     # Windows Uvicorn reload uses a Selector loop, which cannot launch asyncio
     # subprocesses. Popen + a communication thread works on both loop types.
@@ -95,7 +128,7 @@ class Library:
     def __init__(self, config: Settings, store: Store):
         self.config, self.store = config, store
 
-    async def index(self, project_id: str, scope: Scope):
+    def discover(self, scope: Scope):
         candidates = set()
         # Do not follow directory symlinks during recursive traversal. Resolve every file independently.
         for folder in scope.libraries:
@@ -108,45 +141,40 @@ class Library:
                 candidates.add(resolved)
                 if len(candidates) > self.config.max_papers:
                     raise AppError('LIBRARY_TOO_LARGE', f'文献数量超过限制 {self.config.max_papers}。')
-        cached = {r['path']: r for r in self.store.papers(scope.id)}
-        records, warnings, pages = [], [], 0
-        for path in sorted(candidates):
-            if path.stat().st_size > self.config.max_pdf_bytes:
-                raise AppError('PDF_TOO_LARGE', 'PDF 超过单文件大小限制，请缩小文献集。')
-            digest = await asyncio.to_thread(digest_file, path)
+        return {path: file_fingerprint(path, self.config.max_pdf_bytes) for path in sorted(candidates)}
+
+    async def index(self, project_id: str, scope: Scope):
+        candidates = await asyncio.to_thread(self.discover, scope)
+        cached = await asyncio.to_thread(self.store.papers, scope.id)
+        removed = {row['id'] for path, row in cached.items() if Path(path) not in candidates}
+        changed, passages, warnings, pages = [], [], [], 0
+        for path, fingerprint in candidates.items():
             old = cached.get(str(path))
-            if old and old['digest'] == digest:
-                paper, chunks = json.loads(old['paper']), json.loads(old['chunks'])
+            if old and old['fingerprint'] == fingerprint:
+                record = old
             else:
-                parsed = await parse_pdf(path, self.config)
-                if await asyncio.to_thread(digest_file, path) != digest:
-                    raise AppError('PDF_CHANGED', 'PDF 在解析期间发生变化，请重试。', 409)
-                paper_id = 'paper-' + hashlib.sha256((str(path) + digest).encode()).hexdigest()[:24]
-                paper = {
-                    'id': paper_id, 'title': parsed['title'] or path.stem,
-                    'author': parsed['author'] or '作者未知', 'year': None,
-                    'pages': len(parsed['pages']), 'summary': '', 'pdfAvailable': True,
-                }
-                chunks = []
-                for page, text in enumerate(parsed['pages'], 1):
-                    text = normalize(text)
-                    for start in range(0, len(text), 1300):
-                        passage = text[start:start+1600]
-                        if len(passage.strip()) < 20:
-                            continue
-                        chunk_id = f'{paper_id}-p{page}-c{start}'
-                        chunks.append({'id': chunk_id, 'paper': paper, 'page': page, 'text': passage})
-                if chunks:
-                    paper['summary'] = chunks[0]['text'][:220]
+                digest = await asyncio.to_thread(digest_file, path)
+                if old and old['digest'] == digest:
+                    record = {**old, 'fingerprint': fingerprint}
+                else:
+                    parsed = await parse_pdf(path, self.config)
+                    if await asyncio.to_thread(digest_file, path) != digest:
+                        raise AppError('PDF_CHANGED', 'PDF 在解析期间发生变化，请重试。', 409)
+                    if old:
+                        removed.add(old['id'])
+                    record = await asyncio.to_thread(indexed_paper, path, digest, fingerprint, parsed)
+                if await asyncio.to_thread(file_fingerprint, path, self.config.max_pdf_bytes) != fingerprint:
+                    raise AppError('PDF_CHANGED', 'PDF 在索引期间发生变化，请重试。', 409)
+                changed.append(record)
+            paper, chunks = record['paper'], record['chunks']
             pages += paper['pages']
             if pages > self.config.max_total_pages:
                 raise AppError('LIBRARY_TOO_LARGE', '文献总页数超过配置限制。')
             if not chunks:
                 warnings.append(f'{paper["title"]}：未提取到文字，可能需要 OCR。')
-            records.append({'id': paper['id'], 'path': str(path), 'digest': digest, 'paper': paper, 'chunks': chunks})
-        self.store.bind(project_id, scope.workdir, scope.id)
-        self.store.replace_papers(scope.id, records)
-        return [c for r in records for c in r['chunks']], warnings
+            passages.extend(chunks)
+        await asyncio.to_thread(self.store.update_index, project_id, scope.workdir, scope.id, changed, removed)
+        return passages, warnings
 
     def source(self, project_id, paper_id):
         record = self.store.source(project_id, paper_id)
@@ -160,33 +188,54 @@ class Library:
         return path
 
 
-def search(chunks, query: str, limit=6):
+def indexed_paper(path, digest, fingerprint, parsed):
+    paper_id = 'paper-' + hashlib.sha256((str(path) + digest).encode()).hexdigest()[:24]
+    paper = {'id': paper_id, 'title': parsed['title'] or path.stem, 'author': parsed['author'] or '作者未知',
+             'year': None, 'pages': len(parsed['pages']), 'summary': '', 'pdfAvailable': True}
+    chunks = []
+    for page, text in enumerate(parsed['pages'], 1):
+        text = normalize(text)
+        for start in range(0, len(text), 1300):
+            passage = text[start:start+1600]
+            if len(passage.strip()) >= 20:
+                chunks.append({'id': f'{paper_id}-p{page}-c{start}', 'paper': paper, 'page': page, 'text': passage})
+    if chunks:
+        paper['summary'] = chunks[0]['text'][:220]
+    return {'id': paper_id, 'path': str(path), 'digest': digest, 'fingerprint': fingerprint, 'paper': paper, 'chunks': chunks}
+
+
+class SearchIndex:
     """Bounded in-memory BM25 over page-preserving passages; English words + CJK bigrams."""
-    query_terms = set(tokens(query))
-    if not chunks or not query_terms:
-        return []
-    counts = [Counter(tokens(c['text'] + ' ' + c['paper']['title'])) for c in chunks]
-    lengths = [sum(c.values()) for c in counts]
-    average = sum(lengths) / len(lengths) or 1
-    df = {t: sum(t in count for count in counts) for t in query_terms}
-    ranked = []
-    for chunk, count, length in zip(chunks, counts, lengths):
-        score = 0.0
-        for term in query_terms:
-            frequency = count[term]
-            inverse = math.log(1 + (len(chunks) - df[term] + .5) / (df[term] + .5))
-            score += inverse * frequency * 2.2 / (frequency + 1.2 * (.25 + .75 * length / average))
-        if score > 0:
-            ranked.append((score, chunk['id'], chunk))
-    ranked.sort(key=lambda r: (-r[0], r[1]))
-    # Limit repeated passages on the same page so several papers can be represented.
-    result, per_page = [], Counter()
-    for _, _, chunk in ranked:
-        key = (chunk['paper']['id'], chunk['page'])
-        if per_page[key] >= 2:
-            continue
-        per_page[key] += 1
-        result.append(chunk)
-        if len(result) == limit:
-            break
-    return result
+
+    def __init__(self, chunks):
+        self.chunks = chunks
+        self.postings = defaultdict(list)
+        lengths = []
+        for i, chunk in enumerate(chunks):
+            counts = Counter(tokens(chunk['text'] + ' ' + chunk['paper']['title']))
+            lengths.append(sum(counts.values()))
+            for word, count in counts.items():
+                self.postings[word].append((i, count))
+        average = sum(lengths) / max(1, len(lengths)) or 1
+        self.norms = [1.2 * (.25 + .75 * length / average) for length in lengths]
+
+    def search(self, query: str, limit=6):
+        scores = defaultdict(float)
+        for term in sorted(set(tokens(query))):
+            matches = self.postings.get(term, ())
+            inverse = math.log(1 + (len(self.chunks) - len(matches) + .5) / (len(matches) + .5))
+            for i, count in matches:
+                scores[i] += inverse * count * 2.2 / (count + self.norms[i])
+        ranked = sorted(scores, key=lambda i: (-scores[i], self.chunks[i]['id']))
+        # Limit repeated passages on the same page so several papers can be represented.
+        result, per_page = [], Counter()
+        for i in ranked:
+            chunk = self.chunks[i]
+            key = (chunk['paper']['id'], chunk['page'])
+            if per_page[key] >= 2:
+                continue
+            per_page[key] += 1
+            result.append(chunk)
+            if len(result) == limit:
+                break
+        return result

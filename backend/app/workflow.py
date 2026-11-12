@@ -3,7 +3,7 @@ import asyncio
 import re
 
 from .errors import AppError
-from .library import normalize, search
+from .library import SearchIndex, normalize
 from .schemas import Draft, Findings, Plan, ReviewCheck, ResearchTask
 
 CITATION = re.compile(r'\[\[(\d+)\]\]')
@@ -63,10 +63,10 @@ class Workflow:
         self.store.artifact(self.run_id, role, result.model_dump())
         return result
 
-    async def research(self, task, chunks):
+    async def research(self, task, index):
         retrieved, seen = [], set()
         for query in task.queries:
-            for chunk in search(chunks, query, limit=4):
+            for chunk in await asyncio.to_thread(index.search, query, 4):
                 if chunk['id'] not in seen:
                     retrieved.append(chunk)
                     seen.add(chunk['id'])
@@ -131,9 +131,12 @@ class Workflow:
             return
         yield phase('规划研究任务', ['planner'], ['search'], '拆分子问题并分配研究任务。')
         # User history is context only, not an authoritative source. Bound context explicitly.
+        history = [turn.model_dump(include={'question', 'reply'}) for turn in request.history[-3:-1]]
+        if request.history:
+            history.append(request.history[-1].model_dump(exclude={'evidence'}))
         context = {'question': request.question,
-                   'history': [h.model_dump() for h in request.history[-3:]],
-                   'references': [r.model_dump() for r in request.references],
+                   'history': history,
+                   'references': [r.model_dump(exclude={'turn': {'evidence'}}) for r in request.references],
                    'available_papers': list({c['paper']['id']: c['paper'] for c in chunks}.values())}
         plan = await self.call('coordinator',
             'Split this question or revision into at most 3 distinct subquestions and local lexical search queries. '
@@ -160,14 +163,16 @@ class Workflow:
                     self.store.artifact(self.run_id, 'reviewed_draft', report)
                     self.report = report
                     yield {'type': 'reply', 'text': report['reply']}
-                    yield {'type': 'done', 'reportUnchanged': True, 'runId': self.run_id}
+                    yield {'type': 'done', 'reportUnchanged': True, 'runId': self.run_id,
+                           'verification': report['verification']}
                     return
         yield phase('分题检索与分析', ['search', 'analysis'], ['planner'],
                     '研究员分别查找原文并整理发现、方法和局限。',
                     details={'analysis': '；'.join(t.question for t in plan.tasks)})
+        index = await asyncio.to_thread(SearchIndex, chunks)
         # TaskGroup cancels sibling model requests if one researcher fails or the client disconnects.
         async with asyncio.TaskGroup() as group:
-            jobs = [group.create_task(self.research(task, chunks)) for task in plan.tasks]
+            jobs = [group.create_task(self.research(task, index)) for task in plan.tasks]
         findings, gaps = [], list(warnings)
         for job in jobs:
             valid, missing = job.result()
@@ -222,7 +227,7 @@ class Workflow:
                 followups = [ResearchTask(id=f'followup-{revision}-{i}', question=r['reason'], queries=[r['query']])
                              for i, r in enumerate(requests[:3])]
                 for task in followups:
-                    valid, missing = await self.research(task, chunks)
+                    valid, missing = await self.research(task, index)
                     incorporate(valid)
                     gaps.extend(missing)
         sections = []
@@ -262,4 +267,4 @@ class Workflow:
             for paragraph, text in enumerate(section['paragraphs']):
                 for start in range(0, len(text), 160):
                     yield {'type': 'delta', 'sectionId': section['id'], 'paragraph': paragraph, 'text': text[start:start+160]}
-        yield {'type': 'done', 'runId': self.run_id}
+        yield {'type': 'done', 'runId': self.run_id, 'verification': report['verification']}

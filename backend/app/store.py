@@ -23,7 +23,7 @@ class Store:
                     id TEXT PRIMARY KEY, workdir TEXT NOT NULL, scope TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS papers (
                     scope TEXT, id TEXT, path TEXT, digest TEXT, paper TEXT,
-                    chunks TEXT, PRIMARY KEY(scope,id));
+                    chunks TEXT, fingerprint TEXT, PRIMARY KEY(scope,id));
                 CREATE TABLE IF NOT EXISTS runs (
                     id TEXT PRIMARY KEY, project_id TEXT, conversation_id TEXT,
                     status TEXT, created_at TEXT, updated_at TEXT, question TEXT,
@@ -31,7 +31,10 @@ class Store:
                 CREATE TABLE IF NOT EXISTS artifacts (
                     run_id TEXT, seq INTEGER, kind TEXT, payload TEXT,
                     created_at TEXT, PRIMARY KEY(run_id,seq));
+                CREATE INDEX IF NOT EXISTS conversation_runs ON runs(project_id,conversation_id,created_at);
             ''')
+            if 'fingerprint' not in {column['name'] for column in db.execute('PRAGMA table_info(papers)')}:
+                db.execute('ALTER TABLE papers ADD COLUMN fingerprint TEXT')
 
     @contextmanager
     def connect(self):
@@ -47,27 +50,41 @@ class Store:
         with self.connect() as db:
             db.execute("UPDATE runs SET status='interrupted', error_code='SERVER_RESTART' WHERE status='running'")
 
+    @staticmethod
+    def check_workdir(db, project_id, workdir):
+        old = db.execute('SELECT workdir FROM projects WHERE id=?', (project_id,)).fetchone()
+        if old and old['workdir'] != str(workdir):
+            raise AppError('PROJECT_CONFLICT', '该项目 ID 已绑定其他工作目录，请使用新项目或恢复原目录。', 409)
+        return old is not None
+
+    def validate_project(self, project_id, workdir):
+        with self.connect() as db:
+            return self.check_workdir(db, project_id, workdir)
+
     def bind(self, project_id, workdir, scope):
         with self.connect() as db:
-            old = db.execute('SELECT workdir FROM projects WHERE id=?', (project_id,)).fetchone()
-            if old and old['workdir'] != str(workdir):
-                raise AppError('PROJECT_CONFLICT', '该项目 ID 已绑定其他工作目录，请使用新项目或恢复原目录。', 409)
-            db.execute('INSERT OR REPLACE INTO projects VALUES (?,?,?)', (project_id, str(workdir), scope))
+            db.execute('INSERT OR IGNORE INTO projects VALUES (?,?,?)', (project_id, str(workdir), scope))
+            self.check_workdir(db, project_id, workdir)
 
     def papers(self, scope):
         with self.connect() as db:
-            return [dict(r) for r in db.execute('SELECT * FROM papers WHERE scope=?', (scope,))]
+            return {row['path']: {**dict(row), 'paper': json.loads(row['paper']), 'chunks': json.loads(row['chunks'])}
+                    for row in db.execute('SELECT * FROM papers WHERE scope=?', (scope,))}
 
-    def replace_papers(self, scope, records):
+    def update_index(self, project_id, workdir, scope, changed, removed):
         with self.connect() as db:
-            db.execute('DELETE FROM papers WHERE scope=?', (scope,))
-            db.executemany('INSERT INTO papers VALUES (?,?,?,?,?,?)', [
-                (scope, r['id'], r['path'], r['digest'], dump(r['paper']), dump(r['chunks'])) for r in records
-            ])
+            db.execute('INSERT OR IGNORE INTO projects VALUES (?,?,?)', (project_id, str(workdir), scope))
+            self.check_workdir(db, project_id, workdir)
+            db.executemany('DELETE FROM papers WHERE scope=? AND id=?', ((scope, item) for item in removed))
+            db.executemany('''INSERT OR REPLACE INTO papers(scope,id,path,digest,paper,chunks,fingerprint)
+                              VALUES (?,?,?,?,?,?,?)''', (
+                (scope, row['id'], row['path'], row['digest'], dump(row['paper']), dump(row['chunks']), row['fingerprint'])
+                for row in changed))
+            db.execute('UPDATE projects SET scope=? WHERE id=? AND scope<>?', (scope, project_id, scope))
 
     def source(self, project_id, paper_id):
         with self.connect() as db:
-            r = db.execute('''SELECT p.*,j.workdir FROM papers p JOIN projects j ON p.scope=j.scope
+            r = db.execute('''SELECT p.path,p.digest FROM papers p JOIN projects j ON p.scope=j.scope
                 WHERE j.id=? AND p.id=?''', (project_id, paper_id)).fetchone()
             return dict(r) if r else None
 
@@ -86,22 +103,31 @@ class Store:
 
     def finish(self, run_id, status, report=None, code=None):
         with self.connect() as db:
-            db.execute('UPDATE runs SET status=?,report=?,error_code=?,updated_at=? WHERE id=?', (
+            db.execute("UPDATE runs SET status=?,report=?,error_code=?,updated_at=? WHERE id=? AND status='running'", (
                 status, dump(report) if report is not None else None, code,
                 datetime.now(timezone.utc).isoformat(), run_id))
 
-    def run(self, run_id):
+    def run(self, run_id, project_id=None, conversation_id=None, include_artifacts=True):
         with self.connect() as db:
             row = db.execute('SELECT * FROM runs WHERE id=?', (run_id,)).fetchone()
-            if not row:
+            if (not row or project_id is not None and row['project_id'] != project_id
+                    or conversation_id is not None and row['conversation_id'] != conversation_id):
                 return None
             result = dict(row)
             result['report'] = json.loads(result['report']) if result['report'] else None
-            result['artifacts'] = [
-                {'seq': r['seq'], 'kind': r['kind'], 'payload': json.loads(r['payload'])}
-                for r in db.execute('SELECT * FROM artifacts WHERE run_id=? ORDER BY seq', (run_id,))
-            ]
+            if include_artifacts:
+                result['artifacts'] = [
+                    {'seq': r['seq'], 'kind': r['kind'], 'payload': json.loads(r['payload'])}
+                    for r in db.execute('SELECT * FROM artifacts WHERE run_id=? ORDER BY seq', (run_id,))
+                ]
             return result
+
+    def delete_conversation(self, project_id, conversation_id):
+        with self.connect() as db:
+            key = (project_id, conversation_id)
+            db.execute('''DELETE FROM artifacts WHERE run_id IN
+                          (SELECT id FROM runs WHERE project_id=? AND conversation_id=?)''', key)
+            db.execute('DELETE FROM runs WHERE project_id=? AND conversation_id=?', key)
 
     def latest_report(self, project_id, conversation_id):
         with self.connect() as db:

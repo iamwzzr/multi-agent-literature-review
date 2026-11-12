@@ -11,11 +11,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env", env_file_encoding="utf-8", extra="ignore"
     )
-    app_env: str = "development"
     workspace_root: Path = PROJECT_ROOT
     allowed_roots: list[Path] = Field(default_factory=lambda: [PROJECT_ROOT])
-    papers_dir: Path = PROJECT_ROOT / "data" / "papers"
     runtime_dir: Path = PROJECT_ROOT / "data" / "runtime"
+    access_token: SecretStr = SecretStr("")
     model_api_key: SecretStr = SecretStr("")
     model_name: str = ""
     model_base_url: str = "https://api.openai.com/v1"

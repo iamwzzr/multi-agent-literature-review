@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -11,7 +11,7 @@ class Project(StrictModel):
     id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=200)
     workingDirectory: str = Field(min_length=1, max_length=2048)
-    knowledgePaths: list[str] = Field(max_length=20)
+    knowledgePaths: list[Annotated[str, Field(min_length=1, max_length=2048)]] = Field(max_length=20)
 
 
 class Paper(StrictModel):
@@ -104,7 +104,3 @@ class Verdict(StrictModel):
 
 class ReviewCheck(StrictModel):
     verdicts: list[Verdict] = Field(max_length=100)
-
-
-class Reply(StrictModel):
-    text: str = Field(min_length=1, max_length=12000)
