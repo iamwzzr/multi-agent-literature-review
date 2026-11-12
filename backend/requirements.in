@@ -2,6 +2,5 @@ fastapi
 uvicorn
 httpx
 pydantic-settings
-sqlalchemy
 pypdf
 pytest
