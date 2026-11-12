@@ -2163,9 +2163,67 @@ kbd {
 
 .project-form {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   padding: 16px;
   background: var(--card);
+}
+
+.project-fields {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.folder-current {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: .8rem;
+  color: var(--muted);
+}
+
+.folder-dialog .project-path-actions {
+  flex-wrap: nowrap;
+}
+
+.folder-dialog .project-path-actions button {
+  flex: 0 0 auto;
+}
+
+.folder-options {
+  list-style: none;
+  overflow-y: auto;
+  max-height: min(42vh, 360px);
+  margin: 0;
+  padding: 0;
+}
+
+.folder-options .sidebar-row span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-storage-error {
+  margin: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: .82rem;
+}
+
+.source-pdf-viewer {
+  display: block;
+  width: 100%;
+  min-height: min(400px, 45vh);
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 
 .project-form label {
@@ -2234,6 +2292,7 @@ kbd {
 
 .dialog-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 7px;
 }
@@ -2251,14 +2310,16 @@ kbd {
   background: var(--hover);
 }
 
-.dialog-actions button[type="submit"] {
+.dialog-actions button[type="submit"],
+.dialog-actions .folder-confirm {
   border-color: var(--button);
   color: var(--button-text);
   background: var(--button);
   font-weight: 620;
 }
 
-.dialog-actions button[type="submit"]:hover:not(:disabled) {
+.dialog-actions button[type="submit"]:hover:not(:disabled),
+.dialog-actions .folder-confirm:hover:not(:disabled) {
   background: var(--button-hover);
 }
 

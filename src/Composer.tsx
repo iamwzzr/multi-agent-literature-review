@@ -5,7 +5,7 @@ import type { ReviewRun } from './demo'
 
 type Mention = { start: number; end: number; query: string; index: number }
 
-export function Composer({ input, question, followUp, busy, demo, knowledgeCount, conversations, referenceIds, onChange, onReferences, onSubmit, onLibrary, onStop }: {
+export function Composer({ input, question, followUp, busy, demo, knowledgeCount, conversations, referenceIds, referenceLimit, disabledMessage, onAssociate, onChange, onReferences, onSubmit, onLibrary, onStop }: {
   input: RefObject<HTMLTextAreaElement | null>
   question: string
   followUp: boolean
@@ -14,6 +14,9 @@ export function Composer({ input, question, followUp, busy, demo, knowledgeCount
   knowledgeCount: number
   conversations: ReviewRun[]
   referenceIds: string[]
+  referenceLimit?: number
+  disabledMessage?: string
+  onAssociate?: () => void
   onChange: (value: string) => void
   onReferences: (ids: string[]) => void
   onSubmit: () => void
@@ -22,7 +25,8 @@ export function Composer({ input, question, followUp, busy, demo, knowledgeCount
 }) {
   const [mention, setMention] = useState<Mention | null>(null)
   const linked = conversations.filter((review) => referenceIds.includes(review.id))
-  const options = mention ? conversations.filter((review) => (
+  const atReferenceLimit = referenceLimit !== undefined && linked.length >= referenceLimit
+  const options = mention && !atReferenceLimit ? conversations.filter((review) => (
     !referenceIds.includes(review.id) && review.title.toLowerCase().includes(mention.query.toLowerCase())
   )) : []
   const selectedIndex = Math.min(mention?.index ?? 0, options.length - 1)
@@ -62,8 +66,8 @@ export function Composer({ input, question, followUp, busy, demo, knowledgeCount
   }
 
   function attach(review: ReviewRun) {
-    if (!mention) return
-    onReferences([...referenceIds, review.id])
+    if (!mention || atReferenceLimit) return
+    onReferences([...linked.map(({ id }) => id), review.id])
     onChange(`${question.slice(0, mention.start)}${question.slice(mention.end)}`)
     setMention(null)
     focusAt(mention.start)
@@ -91,7 +95,7 @@ export function Composer({ input, question, followUp, busy, demo, knowledgeCount
         className="composer reading-width"
         onSubmit={(event) => {
           event.preventDefault()
-          if (busy || !question.trim()) return
+          if (busy || disabledMessage || !question.trim()) return
           setMention(null)
           onSubmit()
         }}
@@ -119,7 +123,7 @@ export function Composer({ input, question, followUp, busy, demo, knowledgeCount
                   </li>
                 ))}
               </ul>
-            ) : <p>当前项目没有匹配的对话。</p>}
+            ) : <p>{atReferenceLimit ? `本轮最多引用 ${referenceLimit} 个对话。` : '当前项目没有匹配的对话。'}</p>}
           </div>
         )}
         {linked.length > 0 && (
@@ -160,14 +164,19 @@ export function Composer({ input, question, followUp, busy, demo, knowledgeCount
             {onStop ? (
               <button className="send-button" type="button" aria-label="停止生成" title="停止生成" onClick={onStop}><Square size={13} fill="currentColor" /></button>
             ) : (
-              <button className="send-button" type="submit" aria-label={sendLabel} aria-keyshortcuts="Enter" title={sendLabel} disabled={busy || !question.trim()}>
+              <button className="send-button" type="submit" aria-label={sendLabel} aria-keyshortcuts="Enter" title={sendLabel} disabled={busy || Boolean(disabledMessage) || !question.trim()}>
                 {busy ? <Hourglass size={16} /> : <ArrowUp size={19} strokeWidth={2} />}
               </button>
             )}
           </div>
         </div>
       </form>
-      <p className="composer-caption reading-width">{busy ? '正在生成回复，可以先写下一条消息' : 'Enter 发送 · Shift + Enter 换行 · @ 引用对话'}</p>
+      {disabledMessage ? (
+        <div className="composer-caption reading-width">
+          <span role="status">{disabledMessage}</span>
+          {onAssociate && <button className="context-button" type="button" onClick={onAssociate}>关联当前后端</button>}
+        </div>
+      ) : <p className="composer-caption reading-width">{busy ? '正在生成回复，可以先写下一条消息' : 'Enter 发送 · Shift + Enter 换行 · @ 引用对话'}</p>}
     </div>
   )
 }

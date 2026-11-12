@@ -1,16 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { Archive, ArchiveRestore, Building2, ChevronRight, FileText, PanelLeft } from 'lucide-react'
-import { readBackendSettings, reviewRequest, saveBackendSettings, streamBackendReview } from './backend'
+import { BackendRequestError, deleteBackendConversation, getBackendRun, maxKnowledgePaths, maxReferences, readBackendSettings, reviewRequest, saveBackendSettings, streamBackendReview, validateProject } from './backend'
 import { Composer } from './Composer'
 import { createDemoFollowUp, createDemoReview, lastTurn } from './demo'
 import type { Evidence, ReviewRun } from './demo'
 import { EvidenceInspector, Library, PagePreview } from './Evidence'
 import type { InspectorTab } from './Evidence'
 import { pickFolder } from './folderPicker'
+import { FolderDialog } from './FolderDialog'
 import { ResearchOffice } from './Office'
 import { latestReportSection, ReportPanel, ReportPreview, reportVersions } from './ReportPreview'
-import { readWorkspace, removeReview, saveWorkspace } from './projects'
-import type { ProjectConfig } from './projects'
+import { readRecoverableRuns, readWorkspace, removeReview, saveRecoverableRuns, saveWorkspace } from './projects'
+import type { ProjectConfig, RecoverableRun } from './projects'
 import { reportLength, revealSections } from './response'
 import { NewReview, Review, sectionAnchor } from './Review'
 import { ProjectSettings, WorkspaceSettings } from './Settings'
@@ -42,12 +43,16 @@ export function App() {
   const inspectorInline = useMediaQuery('(width > 1120px)')
   const [backend, setBackend] = useState(readBackendSettings)
   const [workspace, setWorkspace] = useState(readWorkspace)
+  const [recoverableRuns, setRecoverableRuns] = useState(readRecoverableRuns)
+  const [workspaceSaved, setWorkspaceSaved] = useState(true)
+  const [recoverySaved, setRecoverySaved] = useState(true)
   const [runs, setRuns] = useState<PendingRun[]>([])
   const [view, setView] = useState<View>({ kind: 'new' })
   const [sidebarOpen, setSidebarOpen] = useState(sidebarInline)
   const [sidebarWidth, setSidebarWidth] = useState(236)
   const [panelOverride, setPanelOverride] = useState<{ scope: string; panel: RightPanel } | null>(null)
-  const [projectForm, setProjectForm] = useState<'create' | 'edit' | null>(null)
+  const [projectForm, setProjectForm] = useState<{ kind: 'create' | 'edit'; id: string } | null>(null)
+  const [knowledgePicker, setKnowledgePicker] = useState(false)
   const [pickingFolder, setPickingFolder] = useState(false)
   const [folderError, setFolderError] = useState<{ projectId: string; message: string } | null>(null)
   const [reviewToDelete, setReviewToDelete] = useState<ReviewRun | null>(null)
@@ -79,7 +84,7 @@ export function App() {
   const officeRun = busy ? activeRun : liveProjectRuns.at(-1)
   const activePhase = runPhase(activeRun)
   const savedReview = view.kind === 'review' ? project.reviews.find((review) => review.id === view.id) : undefined
-  const versions = savedReview ? reportVersions(savedReview) : []
+  const versions = useMemo(() => savedReview ? reportVersions(savedReview) : [], [savedReview])
   const latestReport = versions.at(-1)
   const activeReview = activeRun?.review ?? savedReview
   const displayReview = activeRun?.kind === 'response' && activeRun.visibleLength !== undefined
@@ -98,9 +103,15 @@ export function App() {
   const viewKey = project.id + '/' + (view.kind === 'review' ? view.id : view.kind)
   const { question, referenceIds, sample } = drafts[viewKey] ?? emptyDraft
   const useBackend = activeReview ? activeReview.source === 'backend' : !backend.useDemo && !sample
-  const availableConversations = project.reviews.filter((review) => (
-    review.id !== activeReview?.id && !archivedIds.has(review.id) && (!useBackend || review.source === 'backend')
-  ))
+  const availableConversations = useMemo(() => project.reviews.filter((review) => (
+    review.id !== activeReview?.id && !project.archivedReviewIds?.includes(review.id) &&
+    (!useBackend || review.source === 'backend' && review.backendUrl === backend.url)
+  )), [project.reviews, project.archivedReviewIds, activeReview?.id, useBackend, backend.url])
+  const backendNotice = activeReview?.source === 'backend' && activeReview.backendUrl !== backend.url
+    ? activeReview.backendUrl ? `请连接此对话的后端 ${activeReview.backendUrl} 后继续。`
+      : '此旧对话缺少后端地址。关联后，继续追问会将相关历史发送到当前后端。'
+    : undefined
+  const recoverable = recoverableRuns.find((run) => run.projectId === project.id && run.conversationId === activeReview?.id && run.backendUrl === backend.url)
   const panelScope = viewKey + '/' + (savedReview ? savedReview.history?.length ?? 0 : -1) + '/' + (busy ? 'working' : activeRun ? 'failed' : 'ready')
   const panel = panelOverride?.scope === panelScope ? panelOverride.panel : busy ? 'office' : latestReport ? 'report' : 'closed'
   const showOffice = panel === 'office' && citation === null
@@ -108,8 +119,24 @@ export function App() {
   const reportDrawer = showReport && !sidebarInline
 
   useEffect(() => {
-    saveWorkspace(workspace)
+    const saved = saveWorkspace(workspace)
+    setWorkspaceSaved(saved)
+    if (saved) setRecoverableRuns((previous) => {
+      const remaining = previous.filter((entry) => !workspace.projects.find(({ id }) => id === entry.projectId)?.reviews
+        .some((review) => review.id === entry.conversationId && review.runId === entry.runId))
+      return remaining.length === previous.length ? previous : remaining
+    })
   }, [workspace])
+
+  useEffect(() => {
+    setRecoverySaved(saveRecoverableRuns(recoverableRuns))
+  }, [recoverableRuns])
+
+  const recoverOnConnect = useEffectEvent(() => {
+    for (const entry of recoverableRuns) {
+      if (entry.backendUrl === backend.url) void recoverRun(entry)
+    }
+  })
 
   useEffect(() => {
     const scheduled = timers.current
@@ -123,10 +150,14 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    recoverOnConnect()
+  }, [backend.url, backend.token])
+
+  useEffect(() => {
     if (scrollPane.current) scrollPane.current.scrollTop = 0
   }, [viewKey])
 
-  function navigate(next: View) {
+  const navigate = useCallback((next: View) => {
     setView(next)
     setPanelOverride(null)
     setCitation(null)
@@ -134,7 +165,7 @@ export function App() {
     if (!sidebarInline) setSidebarOpen(false)
     if (next.kind === 'new') requestAnimationFrame(() => input.current?.focus())
     else if (sidebarDrawer) requestAnimationFrame(() => scrollPane.current?.focus())
-  }
+  }, [sidebarInline, sidebarDrawer])
 
   function updateDraft(changes: Partial<Draft>) {
     setDrafts((previous) => ({
@@ -152,9 +183,9 @@ export function App() {
     })
   }
 
-  function openReview(id: string) {
+  const openReview = useCallback((id: string) => {
     navigate({ kind: 'review', id })
-  }
+  }, [navigate])
 
   function archiveReview(id: string, archive: boolean) {
     setWorkspace((previous) => ({
@@ -169,13 +200,26 @@ export function App() {
     }))
   }
 
-  function deleteReview(id: string) {
+  async function deleteReview(review: ReviewRun, localOnly: boolean) {
+    const { id } = review
+    if (review.source === 'backend' && !localOnly) {
+      if (!review.backendUrl || review.backendUrl !== backend.url) throw new Error('请先连接此对话所属的后端。')
+      try {
+        await deleteBackendConversation(backend, project.id, id)
+      } catch (failure) {
+        if (failure instanceof BackendRequestError && [404, 405].includes(failure.status)) {
+          throw new Error('此后端尚不支持删除记录。可以选择仅移除本标签页的对话。')
+        }
+        throw failure
+      }
+    }
     const timer = timers.current.get(id)
     if (timer !== undefined) window.clearTimeout(timer)
     timers.current.delete(id)
     backendRequests.current.get(id)?.abort()
     backendRequests.current.delete(id)
     setRuns((previous) => previous.filter((run) => run.review.id !== id))
+    setRecoverableRuns((previous) => previous.filter((run) => run.projectId !== project.id || run.conversationId !== id))
     setWorkspace((previous) => ({
       ...previous,
       projects: previous.projects.map((entry) => entry.id === project.id ? removeReview(entry, id) : entry),
@@ -191,38 +235,52 @@ export function App() {
     navigate({ kind: 'new' })
   }
 
+  function openProjectForm(kind: 'create' | 'edit') {
+    setProjectForm({ kind, id: kind === 'edit' ? project.id : crypto.randomUUID() })
+  }
+
   function configureProject(config: ProjectConfig) {
-    if (projectForm === 'edit') {
+    if (!projectForm) return
+    if (projectForm.kind === 'edit') {
       setWorkspace((previous) => ({
         ...previous,
-        projects: previous.projects.map((entry) => entry.id === project.id ? { ...entry, ...config } : entry),
+        projects: previous.projects.map((entry) => entry.id === projectForm.id ? { ...entry, ...config } : entry),
       }))
     } else {
-      const created = { ...config, id: crypto.randomUUID(), reviews: [] }
+      const created = { ...config, id: projectForm.id, reviews: [] }
       setWorkspace((previous) => ({ projects: [...previous.projects, created], activeProjectId: created.id }))
       navigate({ kind: 'new' })
     }
     setProjectForm(null)
   }
 
-  async function addKnowledgeFolder() {
+  async function addKnowledgeFolder(chosenPath?: string) {
     if (pickingFolder) return
     const projectId = project.id
-    setPickingFolder(true)
     setFolderError(null)
+    if (project.knowledgePaths.length >= maxKnowledgePaths) {
+      setFolderError({ projectId, message: `每个项目最多配置 ${maxKnowledgePaths} 个知识库路径。` })
+      return
+    }
+    if (!backend.useDemo && !chosenPath) {
+      setKnowledgePicker(true)
+      return
+    }
+    setPickingFolder(true)
     try {
-      const name = await pickFolder('folio-knowledge')
-      if (!name) return
-      if (project.knowledgePaths.includes(name)) {
-        setFolderError({ projectId, message: '已添加这个目录名。同名文件夹可以在项目配置里填写完整路径。' })
+      const path = chosenPath ?? await pickFolder('folio-knowledge')
+      if (!path) return
+      if (project.knowledgePaths.includes(path)) {
+        setFolderError({ projectId, message: '已添加这个目录。' })
         return
       }
+      const config = { name: project.name, folder: project.folder, knowledgePaths: [...project.knowledgePaths, path] }
+      const validated = chosenPath ? await validateProject(backend, projectId, config) : config
       setWorkspace((previous) => ({
         ...previous,
         projects: previous.projects.map((entry) => (
-          entry.id === projectId && !entry.knowledgePaths.includes(name)
-            ? { ...entry, knowledgePaths: [...entry.knowledgePaths, name] }
-            : entry
+          entry.id === projectId && entry.folder === project.folder && entry.knowledgePaths === project.knowledgePaths
+            ? { ...entry, folder: validated.folder, knowledgePaths: validated.knowledgePaths } : entry
         )),
       }))
     } catch (failure) {
@@ -230,6 +288,13 @@ export function App() {
     } finally {
       setPickingFolder(false)
     }
+  }
+
+  function associateReview(id: string) {
+    setWorkspace((previous) => ({ ...previous, projects: previous.projects.map((entry) => entry.id === project.id ? {
+      ...entry, reviews: entry.reviews.map((review) => review.id === id && !review.backendUrl
+        ? { ...review, backendUrl: backend.url } : review),
+    } : entry) }))
   }
 
   function schedule(id: string, callback: () => void, delay: number) {
@@ -304,15 +369,15 @@ export function App() {
   }
 
   async function runBackend(review: ReviewRun) {
-    if (backendRequests.current.has(review.id)) return
+    if (review.backendUrl !== backend.url || backendRequests.current.has(review.id)) return
     const controller = new AbortController()
     backendRequests.current.set(review.id, controller)
     const projectId = project.id
-    let current: ReviewRun = { ...review, sections: [], evidence: [], reply: undefined }
+    let current: ReviewRun = { ...review, sections: [], evidence: [], reply: undefined, runId: undefined }
     showRun({ projectId, review: current, kind: 'connecting' })
 
     try {
-      const output = await streamBackendReview(backend.url, reviewRequest(project, review), controller.signal, (update) => {
+      const output = await streamBackendReview(backend, reviewRequest(project, review), controller.signal, (update) => {
         if (backendRequests.current.get(review.id) !== controller) return
         if (update.kind === 'phase') {
           updateRun({ projectId, review: current, kind: 'office', phase: update.phase })
@@ -320,9 +385,16 @@ export function App() {
           current = { ...current, sections: update.sections, evidence: update.evidence, reply: update.reply }
           updateRun({ projectId, review: current, kind: 'response' })
         }
+      }, (runId) => {
+        if (backendRequests.current.get(review.id) !== controller) return
+        current = { ...current, runId }
+        setRecoverableRuns((previous) => [...previous.filter((run) => run.projectId !== projectId || run.conversationId !== review.id), {
+          projectId, conversationId: review.id, runId, backendUrl: backend.url,
+          title: review.title, question: review.question, referenceIds: review.referenceIds,
+        }])
       }, review.history?.at(-1))
       controller.signal.throwIfAborted()
-      if (backendRequests.current.get(review.id) === controller) completeRun(projectId, { ...review, ...output })
+      if (backendRequests.current.get(review.id) === controller) completeRun(projectId, { ...review, ...output, runId: current.runId })
     } catch (failure) {
       if (backendRequests.current.get(review.id) !== controller) return
       const message = controller.signal.aborted ? '已停止生成。' : failure instanceof Error ? failure.message : '后端请求失败。'
@@ -332,9 +404,45 @@ export function App() {
     }
   }
 
+  async function recoverRun(entry: RecoverableRun) {
+    const { projectId, conversationId, runId, backendUrl, title, question, referenceIds } = entry
+    if (backendUrl !== backend.url || backendRequests.current.has(conversationId)) return
+    const target = workspace.projects.find(({ id }) => id === projectId)
+    if (!target) return
+    const saved = target.reviews.find(({ id }) => id === conversationId)
+    if (saved?.runId === runId || saved?.backendUrl && saved.backendUrl !== backendUrl) return
+    const review: ReviewRun = {
+      id: conversationId, title, question, referenceIds, backendUrl, runId, source: 'backend',
+      history: saved ? [...(saved.history ?? []), lastTurn(saved)] : undefined, sections: [], evidence: [],
+    }
+    const controller = new AbortController()
+    backendRequests.current.set(conversationId, controller)
+    setRuns((previous) => [...previous.filter((run) => run.review.id !== conversationId), { projectId, review, kind: 'connecting' }])
+    try {
+      const result = await getBackendRun(backend, runId, projectId, conversationId, controller.signal)
+      if (backendRequests.current.get(conversationId) !== controller) return
+      if (result.status === 'completed') {
+        completeRun(projectId, { ...review, ...result.output, reportUnchanged: saved ? result.output.reportUnchanged : undefined })
+      } else {
+        if (result.status === 'interrupted') setRecoverableRuns((previous) => previous.filter((run) => run.runId !== runId))
+        updateRun({ projectId, review, kind: 'failed', message: result.status === 'running'
+          ? '后端仍在处理上次任务，可稍后检查结果。' : '上次任务已中断，可重试这一轮。' })
+      }
+    } catch (failure) {
+      if (backendRequests.current.get(conversationId) !== controller) return
+      if (failure instanceof BackendRequestError && failure.status === 404) {
+        setRecoverableRuns((previous) => previous.filter((run) => run.runId !== runId))
+      }
+      updateRun({ projectId, review, kind: 'failed', message: controller.signal.aborted ? '已停止检查任务。'
+        : failure instanceof Error ? failure.message : '暂时无法读取上次任务结果。' })
+    } finally {
+      if (backendRequests.current.get(conversationId) === controller) backendRequests.current.delete(conversationId)
+    }
+  }
+
   function submitQuestion() {
     const value = question.trim()
-    if (!value || activeArchived || busy || (activeReview && timers.current.has(activeReview.id))) return
+    if (!value || backendNotice || activeArchived || busy || (activeReview && timers.current.has(activeReview.id))) return
     const references = referenceIds.filter((id) => availableConversations.some((review) => review.id === id))
     clearDraft()
     if (useBackend) {
@@ -342,6 +450,7 @@ export function App() {
         id: activeReview?.id ?? crypto.randomUUID(),
         title: savedReview?.title ?? value,
         source: 'backend',
+        backendUrl: backend.url,
         question: value,
         referenceIds: references,
         history: savedReview ? [...(savedReview.history ?? []), lastTurn(savedReview)] : undefined,
@@ -353,11 +462,11 @@ export function App() {
     }
   }
 
-  function showCitation(turn: number, index: number, trigger: HTMLButtonElement, fromReport?: boolean) {
+  const showCitation = useCallback((turn: number, index: number, trigger: HTMLButtonElement, fromReport?: boolean) => {
     citationTrigger.current = trigger
     setCitation({ turn, index, fromReport })
     setInspectorTab('citations')
-  }
+  }, [])
 
   function closeSidebar() {
     setSidebarOpen(false)
@@ -411,6 +520,9 @@ export function App() {
       knowledgeCount={project.knowledgePaths.length}
       conversations={availableConversations}
       referenceIds={referenceIds}
+      referenceLimit={useBackend ? maxReferences : undefined}
+      disabledMessage={backendNotice}
+      onAssociate={backendNotice && savedReview && !savedReview.backendUrl ? () => associateReview(savedReview.id) : undefined}
       onChange={(question) => updateDraft({ question, sample: false })}
       onReferences={(referenceIds) => updateDraft({ referenceIds })}
       onSubmit={submitQuestion}
@@ -448,8 +560,8 @@ export function App() {
             pickingFolder={pickingFolder}
             folderError={folderError?.projectId === project.id ? folderError.message : undefined}
             onAddKnowledge={() => void addKnowledgeFolder()}
-            onCreateProject={() => setProjectForm('create')}
-            onEditProject={() => setProjectForm('edit')}
+            onCreateProject={() => openProjectForm('create')}
+            onEditProject={() => openProjectForm('edit')}
             onSettings={() => settingsDialog.current?.showModal()}
             onClose={closeSidebar}
             onResize={setSidebarWidth}
@@ -489,6 +601,7 @@ export function App() {
             {!useBackend && view.kind !== 'library' && <span className="demo-badge"><span /> 模拟数据</span>}
           </div>
         </header>
+        {(!workspaceSaved || !recoverySaved) && <p className="workspace-storage-error" role="alert">浏览器未能保存工作区或任务记录。请先导出需要保留的综述，再刷新页面。</p>}
 
         <div className="workspace-body" data-office-open={showOffice} data-report-open={showReport}>
           <div className="workbench" inert={inspectorDrawer || reportDrawer}>
@@ -502,7 +615,8 @@ export function App() {
                   responding={activeRun?.kind === 'response'}
                   connecting={activeRun?.kind === 'connecting'}
                   error={activeRun?.kind === 'failed' ? activeRun.message : undefined}
-                  onRetry={activeRun?.kind === 'failed' && !activeArchived ? () => void runBackend(activeRun.review) : undefined}
+                  onRetry={activeRun?.kind === 'failed' && !activeArchived && !backendNotice ? () => void runBackend(activeRun.review) : undefined}
+                  onRecover={activeRun?.kind === 'failed' && recoverable ? () => void recoverRun(recoverable) : undefined}
                   onSettings={() => settingsDialog.current?.showModal()}
                   activeCitation={inspectorTab === 'citations' ? citation ?? undefined : undefined}
                   onCitation={showCitation}
@@ -523,7 +637,7 @@ export function App() {
                   {composer}
                 </NewReview>
               )}
-              {view.kind === 'library' && <Library project={project} onConfigure={() => setProjectForm('edit')} onPreview={setPreview} />}
+              {view.kind === 'library' && <Library project={project} onConfigure={() => openProjectForm('edit')} onPreview={setPreview} />}
             </main>
             {activeReview && (activeArchived ? (
               <div className="composer-dock">
@@ -566,6 +680,7 @@ export function App() {
               <button className="inspector-scrim" type="button" tabIndex={-1} aria-label="关闭证据面板" onClick={closeInspector} />
               <EvidenceInspector
                 review={citedTurn}
+                backend={backend}
                 citation={citation.index}
                 tab={inspectorTab}
                 drawer={inspectorDrawer}
@@ -585,14 +700,21 @@ export function App() {
       }} />
       {projectForm && (
         <ProjectSettings
-          project={projectForm === 'edit' ? project : undefined}
-          otherFolders={workspace.projects.filter((entry) => projectForm === 'create' || entry.id !== project.id).map((entry) => entry.folder)}
+          id={projectForm.id}
+          project={projectForm.kind === 'edit' ? project : undefined}
+          otherFolders={workspace.projects.filter((entry) => entry.id !== projectForm.id).map((entry) => entry.folder)}
+          backend={backend.useDemo ? undefined : backend}
+          locked={projectForm.kind === 'edit' && (project.reviews.some((review) => review.backendUrl === backend.url) ||
+            recoverableRuns.some((run) => run.projectId === project.id && run.backendUrl === backend.url))}
           onSave={configureProject}
           onClose={() => setProjectForm(null)}
         />
       )}
-      {reviewToDelete && <DeleteReviewDialog review={reviewToDelete} onDelete={() => deleteReview(reviewToDelete.id)} onClose={() => setReviewToDelete(null)} />}
-      {preview && <PagePreview evidence={preview} onClose={() => setPreview(null)} />}
+      {knowledgePicker && <FolderDialog backend={backend} initialPath={project.folder} onClose={() => setKnowledgePicker(false)}
+        onSelect={(path) => { setKnowledgePicker(false); void addKnowledgeFolder(path) }}
+        onManual={() => { setKnowledgePicker(false); openProjectForm('edit') }} />}
+      {reviewToDelete && <DeleteReviewDialog review={reviewToDelete} onDelete={(localOnly) => deleteReview(reviewToDelete, localOnly)} onClose={() => setReviewToDelete(null)} />}
+      {preview && <PagePreview evidence={preview} backend={backend} onClose={() => setPreview(null)} />}
       {reportPreview && <ReportPreview review={reportPreview} onClose={() => setReportPreview(null)} />}
     </div>
   )
