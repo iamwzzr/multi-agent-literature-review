@@ -355,6 +355,47 @@ def test_model_adapter_json_errors_and_retry(setup):
     assert error.value.code == 'MODEL_OUTPUT_INVALID'
 
 
+@pytest.mark.parametrize(('status', 'code', 'retryable', 'count'), [
+    (401, 'MODEL_AUTH_FAILED', False, 1),
+    (402, 'MODEL_QUOTA_EXCEEDED', False, 1),
+    (422, 'MODEL_REQUEST_REJECTED', False, 1),
+    (429, 'MODEL_RATE_LIMITED', True, 2),
+    (503, 'MODEL_SERVICE_UNAVAILABLE', True, 2),
+])
+def test_model_http_errors_are_classified_without_provider_body(setup, status, code, retryable, count):
+    config, _, _ = setup
+    config.model_api_key = SecretStr('test-key')
+    config.model_name = 'test-model'
+    attempts = []
+
+    def provider(request):
+        attempts.append(request)
+        return httpx.Response(status, json={'error': {'message': 'private provider fixture text'}})
+
+    adapter = ModelClient(config, httpx.MockTransport(provider))
+    with pytest.raises(AppError) as failure:
+        asyncio.run(adapter.complete('coordinator', 'test', {}, Plan))
+    details = failure.value.details()
+    assert details['code'] == code
+    assert details['retryable'] is retryable
+    assert details['providerStatus'] == status
+    assert 'private provider fixture text' not in str(details)
+    assert len(attempts) == count
+
+
+def test_truncated_model_output_is_reported_as_incomplete(setup):
+    config, _, _ = setup
+    config.model_api_key = SecretStr('test-key')
+    config.model_name = 'test-model'
+    adapter = ModelClient(config, httpx.MockTransport(lambda _: httpx.Response(200, json={
+        'choices': [{'finish_reason': 'length', 'message': {'content': '{"mode":"review"'}}],
+    })))
+    with pytest.raises(AppError) as failure:
+        asyncio.run(adapter.complete('coordinator', 'test', {}, Plan))
+    assert failure.value.code == 'MODEL_OUTPUT_TRUNCATED'
+    assert failure.value.retryable is False
+
+
 def test_stream_uses_actual_http_model_adapter(setup):
     config, payload, _ = setup
     config = Settings(_env_file=None, **{**config.model_dump(), 'model_api_key':'test-key', 'model_name':'test-model'})
@@ -442,11 +483,14 @@ def test_model_failure_is_stream_error_and_releases_slot(setup):
     config, payload, _ = setup
     class BrokenModel(ScriptedModel):
         async def complete(self, *args):
-            raise AppError('MODEL_TIMEOUT', '模型调用超时', 503)
+            raise AppError('MODEL_TIMEOUT', '模型调用超时', 503, retryable=True)
     app = create_app(config, BrokenModel())
     with local_client(app) as client:
-        lines = events(client.post('/api/v1/reviews/stream', json=payload))
-        assert lines[-1] == {'type': 'error', 'code': 'MODEL_TIMEOUT', 'message': '模型调用超时'}
+        response = client.post('/api/v1/reviews/stream', json=payload)
+        details = {'code': 'MODEL_TIMEOUT', 'message': '模型调用超时', 'retryable': True, 'agent': 'planner'}
+        assert events(response)[-1] == {'type': 'error', **details}
+        run = client.get('/api/v1/runs/' + response.headers['x-run-id'], params={'includeArtifacts': False}).json()
+        assert run['status'] == 'failed' and run['error'] == details
         assert not app.state.active
 
 

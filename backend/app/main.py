@@ -7,11 +7,13 @@ from ipaddress import ip_address
 from secrets import compare_digest
 from uuid import uuid4
 
+from anyio import CancelScope
 from fastapi import Depends, FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import ValidationError
+from starlette.background import BackgroundTask
 
 from .config import Settings, settings
 from .errors import AppError
@@ -162,13 +164,44 @@ def create_app(config: Settings | None = None, model=None):
         try:
             store.bind(data.project.id, scope.workdir, scope.id)
             store.start(run_id, data)
-        except Exception:
+        except AppError:
             app.state.active.discard(data.project.id)
             raise
+        except Exception as failure:
+            app.state.active.discard(data.project.id)
+            log.error('review_start_failed run=%s error_type=%s', run_id, type(failure).__name__)
+            raise AppError('INTERNAL_ERROR', '后端无法启动本轮任务，请检查服务日志和运行目录。', 500) from None
         workflow = Workflow(config, store, library, app.state.model, run_id)
         log.info('review_started run=%s project=%s conversation=%s', run_id, data.project.id, data.conversationId)
+        producer = None
+        released = False
+        terminal = False
+
+        async def release_run():
+            nonlocal released
+            if released:
+                return
+            released = True
+            # A streaming disconnect can cancel the ASGI task while cleanup is still in progress.
+            with CancelScope(shield=True):
+                try:
+                    if producer is not None:
+                        if not producer.done():
+                            producer.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await producer
+                finally:
+                    app.state.producers.discard(producer)
+                    app.state.active.discard(data.project.id)
+                    if not terminal:
+                        try:
+                            await asyncio.to_thread(store.finish, run_id, 'cancelled', code='CLIENT_DISCONNECTED')
+                        except Exception as failure:
+                            log.error('review_cancel_not_saved run=%s error_type=%s', run_id, type(failure).__name__)
+                    log.info('review_finished run=%s', run_id)
 
         async def stream():
+            nonlocal producer, terminal
             queue = asyncio.Queue(maxsize=32)
 
             async def produce():
@@ -179,20 +212,21 @@ def create_app(config: Settings | None = None, model=None):
                             if event['type'] == 'done':
                                 await asyncio.to_thread(store.finish, run_id, 'completed', workflow.report)
                             await queue.put(event)
-                except asyncio.CancelledError:
-                    await asyncio.to_thread(store.finish, run_id, 'cancelled', code='CLIENT_DISCONNECTED')
-                    raise
                 except Exception as failure:
-                    error = first_error(failure)
-                    if isinstance(error, AppError):
-                        code, message = error.code, error.message
-                    elif isinstance(error, TimeoutError):
-                        code, message = 'RUN_TIMEOUT', '本轮运行超时，请缩小文献集或研究范围。'
+                    cause = first_error(failure)
+                    if isinstance(cause, AppError):
+                        error = cause
+                    elif isinstance(cause, TimeoutError):
+                        error = AppError('RUN_TIMEOUT', '本轮运行超时，请缩小文献集或研究范围。', retryable=False)
                     else:
-                        code, message = 'INTERNAL_ERROR', '后端执行失败，请检查本机日志和输入文献。'
-                    log.error('review_failed run=%s code=%s error_type=%s', run_id, code, type(error).__name__)
-                    await asyncio.to_thread(store.finish, run_id, 'failed', code=code)
-                    await queue.put({'type': 'error', 'code': code, 'message': message})
+                        error = AppError('INTERNAL_ERROR', '后端执行失败，请检查服务日志和输入文献。', 500)
+                    details = error.details()
+                    log.error('review_failed run=%s code=%s agent=%s error_type=%s', run_id, error.code, error.agent, type(cause).__name__)
+                    try:
+                        await asyncio.to_thread(store.finish, run_id, 'failed', error=details)
+                    except Exception as failure:
+                        log.error('review_error_not_saved run=%s error_type=%s', run_id, type(failure).__name__)
+                    await queue.put({'type': 'error', **details})
 
             producer = asyncio.create_task(produce())
             app.state.producers.add(producer)
@@ -205,21 +239,16 @@ def create_app(config: Settings | None = None, model=None):
                     except TimeoutError:
                         yield '\n'  # NDJSON keepalive, ignored by the frontend parser.
                         continue
+                    terminal = event['type'] in ('done', 'error')
                     yield json.dumps(event, ensure_ascii=False) + '\n'
-                    if event['type'] in ('done', 'error'):
+                    if terminal:
                         break
             finally:
-                if not producer.done():
-                    producer.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await producer
-                app.state.producers.discard(producer)
-                app.state.active.discard(data.project.id)
-                log.info('review_finished run=%s', run_id)
+                await release_run()
 
         return StreamingResponse(stream(), media_type='application/x-ndjson', headers={
             'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no', 'X-Run-Id': run_id,
-        })
+        }, background=BackgroundTask(release_run))
 
     return app
 

@@ -27,7 +27,7 @@ class Store:
                 CREATE TABLE IF NOT EXISTS runs (
                     id TEXT PRIMARY KEY, project_id TEXT, conversation_id TEXT,
                     status TEXT, created_at TEXT, updated_at TEXT, question TEXT,
-                    report TEXT, error_code TEXT);
+                    report TEXT, error_code TEXT, error_details TEXT);
                 CREATE TABLE IF NOT EXISTS artifacts (
                     run_id TEXT, seq INTEGER, kind TEXT, payload TEXT,
                     created_at TEXT, PRIMARY KEY(run_id,seq));
@@ -35,6 +35,8 @@ class Store:
             ''')
             if 'fingerprint' not in {column['name'] for column in db.execute('PRAGMA table_info(papers)')}:
                 db.execute('ALTER TABLE papers ADD COLUMN fingerprint TEXT')
+            if 'error_details' not in {column['name'] for column in db.execute('PRAGMA table_info(runs)')}:
+                db.execute('ALTER TABLE runs ADD COLUMN error_details TEXT')
 
     @contextmanager
     def connect(self):
@@ -91,9 +93,10 @@ class Store:
     def start(self, run_id, request):
         now = datetime.now(timezone.utc).isoformat()
         with self.connect() as db:
-            db.execute('INSERT INTO runs VALUES (?,?,?,?,?,?,?,?,?)', (
+            db.execute('''INSERT INTO runs(id,project_id,conversation_id,status,created_at,updated_at,question)
+                          VALUES (?,?,?,?,?,?,?)''', (
                 run_id, request.project.id, request.conversationId, 'running', now, now,
-                request.question, None, None))
+                request.question))
 
     def artifact(self, run_id, kind, payload):
         with self.connect() as db:
@@ -101,11 +104,12 @@ class Store:
             db.execute('INSERT INTO artifacts VALUES (?,?,?,?,?)', (
                 run_id, seq, kind, dump(payload), datetime.now(timezone.utc).isoformat()))
 
-    def finish(self, run_id, status, report=None, code=None):
+    def finish(self, run_id, status, report=None, code=None, error=None):
         with self.connect() as db:
-            db.execute("UPDATE runs SET status=?,report=?,error_code=?,updated_at=? WHERE id=? AND status='running'", (
-                status, dump(report) if report is not None else None, code,
-                datetime.now(timezone.utc).isoformat(), run_id))
+            db.execute("""UPDATE runs SET status=?,report=?,error_code=?,error_details=?,updated_at=?
+                          WHERE id=? AND status='running'""", (
+                status, dump(report) if report is not None else None, error['code'] if error else code,
+                dump(error) if error else None, datetime.now(timezone.utc).isoformat(), run_id))
 
     def run(self, run_id, project_id=None, conversation_id=None, include_artifacts=True):
         with self.connect() as db:
@@ -115,6 +119,9 @@ class Store:
                 return None
             result = dict(row)
             result['report'] = json.loads(result['report']) if result['report'] else None
+            error = result.pop('error_details')
+            if error:
+                result['error'] = json.loads(error)
             if include_artifacts:
                 result['artifacts'] = [
                     {'seq': r['seq'], 'kind': r['kind'], 'payload': json.loads(r['payload'])}

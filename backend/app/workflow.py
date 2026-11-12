@@ -7,6 +7,7 @@ from .library import SearchIndex, normalize
 from .schemas import Draft, Findings, Plan, ReviewCheck, ResearchTask
 
 CITATION = re.compile(r'\[\[(\d+)\]\]')
+MODEL_AGENTS = {'coordinator': 'planner', 'researcher': 'analysis', 'synthesizer': 'writing', 'reviewer': 'verification'}
 
 
 def phase(title, working, done=(), summary='', feedback=False, details=None):
@@ -57,9 +58,14 @@ class Workflow:
 
     async def call(self, role, instruction, payload, schema):
         if self.calls >= self.config.max_model_calls:
-            raise AppError('MODEL_BUDGET_EXCEEDED', '本轮达到模型调用预算，请缩小问题范围或减少补查。', 503)
+            raise AppError('MODEL_BUDGET_EXCEEDED', '本轮达到模型调用预算，请缩小问题范围或减少补查。',
+                           503, retryable=False, agent=MODEL_AGENTS[role])
         self.calls += 1
-        result = await self.model.complete(role, instruction, payload, schema)
+        try:
+            result = await self.model.complete(role, instruction, payload, schema)
+        except AppError as error:
+            error.agent = MODEL_AGENTS[role]
+            raise
         self.store.artifact(self.run_id, role, result.model_dump())
         return result
 
@@ -118,7 +124,11 @@ class Workflow:
 
     async def run(self, request, scope):
         yield phase('读取本地论文', ['search'], summary='按 PDF 页序解析并更新当前项目索引。')
-        chunks, warnings = await self.library.index(request.project.id, scope)
+        try:
+            chunks, warnings = await self.library.index(request.project.id, scope)
+        except AppError as error:
+            error.agent = 'search'
+            raise
         self.store.artifact(self.run_id, 'library', {'chunks': len(chunks), 'warnings': warnings})
         if not chunks:
             message = '没有可分析的论文文字。请添加文字型 PDF；扫描件需要先进行 OCR。'
