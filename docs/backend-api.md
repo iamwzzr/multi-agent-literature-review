@@ -2,7 +2,9 @@
 
 ## 联调入口
 
-Folio 默认访问 `http://localhost:35549`。本机开发时请让后端监听回环地址的 `35549` 端口。前端「设置 → 后端连接」可以保存其他服务地址，支持 HTTP、HTTPS 和反向代理的路径前缀。填写服务根地址或代理前缀，前端会拼接 `/api/v1`。
+Folio 默认访问 `http://localhost:35549`。本机开发时请让后端监听回环地址的 `35549` 端口。远程地址使用 HTTPS，可填写反向代理的路径前缀。前端会拼接 `/api/v1`。
+
+后端配置 `ACCESS_TOKEN` 后，在「设置 → 后端连接」填写同一令牌。前端通过 `Authorization: Bearer …` 发送，令牌保存在当前标签页。未配置令牌时，后端仅接受回环连接。令牌对应单个工作区所有者。已生成的对话与后端地址绑定。
 
 本版前端负责项目配置、对话历史和界面状态。每次生成把当前项目和对话上下文发给后端。后端负责本地文献索引、Agent 协作、模型调用、核查和返回结果。浏览器在当前标签页保存完成的对话。
 
@@ -10,7 +12,11 @@ Folio 默认访问 `http://localhost:35549`。本机开发时请让后端监听�
 | --- | --- | --- |
 | `GET` | `/api/v1/health` | 检查服务是否就绪以及是否支持 Folio v1 |
 | `POST` | `/api/v1/reviews/stream` | 新建或续写综述，流式返回进度、报告和证据 |
+| `GET` | `/api/v1/folders?path=…` | 列出后端允许目录下的子目录。省略 `path` 时列出允许的根目录 |
+| `POST` | `/api/v1/projects/validate` | 校验项目和知识库路径，返回规范化目录 |
 | `GET` | `/api/v1/papers/pdf?projectId=…&paperId=…` | 可选。提供引用对应的源论文 PDF |
+| `GET` | `/api/v1/runs/{run_id}?projectId=…&conversationId=…&includeArtifacts=false` | 查询任务状态并取回完成稿 |
+| `DELETE` | `/api/v1/projects/{project_id}/conversations/{conversation_id}` | 删除对话对应的服务端报告和运行记录 |
 
 ## `GET /api/v1/health`
 
@@ -46,12 +52,12 @@ Folio 默认访问 `http://localhost:35549`。本机开发时请让后端监听�
 | `conversationId` | 前端生成。同一对话的追问和重试沿用此 ID。 |
 | `project` | `id` 标识项目。`workingDirectory` 是后端可访问的工作目录。`~/` 由后端展开为服务账户的主目录，相对工作目录以服务配置的工作区根目录为基准，相对知识库路径以工作目录为基准。解析后的目录均按后端允许范围校验。 |
 | `question` | 本轮研究问题或修改要求，前端最多输入 400 字符。 |
-| `history` | 按时间顺序排列的已完成轮次。每轮包含 `question`、`sections` 和 `evidence`，可包含 `reply` 和 `reportUnchanged: true`。首轮为空数组。末轮的 `sections` 和 `evidence` 始终是该对话当前的完整稿件。 |
-| `references` | 通过 `@` 选中的同项目后端对话。每项包含 `conversationId`、`title` 和 `turn`，其中 `turn` 是该对话最新一轮的 `question`、`sections` 和 `evidence`。 |
+| `history` | 按时间顺序排列最近三轮。每轮包含 `question`、`sections` 和 `evidence`，可包含 `reply` 和 `reportUnchanged: true`。末轮保留完整稿和证据，较早轮只发送问答文字。 |
+| `references` | 通过 `@` 选中的同项目、同后端对话，最多 10 条。每项包含 `conversationId`、最多 300 字符的 `title` 和 `turn`。`turn` 带最新稿件，上下文里的证据数组可为空。 |
 
 `sections` 的元素形如 `{"id":"findings","heading":"主要发现","paragraphs":["正文[[1]]"]}`。`evidence` 是下面 `evidence` 事件中的 `item` 数组。每轮独立编号，历史和引用对话属于上下文，当前轮的证据由后端重新核对。
 
-浏览器的文件夹选择器只返回目录名。选在项目目录下的知识库可用这个名字作为相对路径。目录在其他位置时，请在「配置项目」填写后端机器上的完整路径。 [浏览器文件系统规范](https://fs.spec.whatwg.org/#dom-filesystemhandle-name)
+真实后端模式使用服务端目录浏览，支持手填服务器上的绝对或相对路径。校验接口接收 `project` 对象，返回 `workingDirectory`、`knowledgePaths` 和 `workingDirectoryLocked`。项目首次运行后会绑定工作目录，使用其他目录时可新建项目。目录列表返回 `current`、`parent`、`folders`（每项包含 `name`、`path`）和 `truncated`。
 
 ### 流式响应
 
@@ -64,7 +70,7 @@ Folio 默认访问 `http://localhost:35549`。本机开发时请让后端监听�
 | `section` | `id`、`heading` | 声明章节。同一轮中 `id` 唯一，章节按声明顺序显示。 |
 | `delta` | `sectionId`、`paragraph`、`text` | 向已声明章节追加纯文本。`paragraph` 从 0 连续递增。同一段落可收到多次追加。 |
 | `reply` | `text` | 可选。分段追加对话回复，用于说明本轮改动或回答问题。 |
-| `done` | 可选 `reportUnchanged: true` | 成功的最后一行。通常交付完整稿件，正文内每个 `[[n]]` 都有对应证据。仅回复时使用 `reportUnchanged: true`。随后关闭响应。 |
+| `done` | `runId`、`verification`、可选 `reportUnchanged: true` | 成功的最后一行。核验状态为 `passed`、`with_warnings` 或 `no_evidence`，用于右栏和导出。仅回复时使用 `reportUnchanged: true`。随后关闭响应。 |
 | `error` | `code`、`message` | 流开始后的失败终止事件。`message` 会直接显示在前端。随后关闭响应。 |
 
 Agent ID 固定为 `planner`（统筹规划）、`search`（文献检索）、`analysis`（论文分析）、`writing`（综述撰写）、`verification`（事实核查）。建议先发送工作进度，核查完成后再发送最终报告的证据和正文。以下示例演示事件和引用编号的对应关系。
@@ -89,13 +95,13 @@ Agent ID 固定为 `planner`（统筹规划）、`search`（文献检索）、`a
 
 ### 错误与取消
 
-写出流响应前，使用合适的非 `2xx` 状态和如下错误体。流已开始时，使用 `error` 事件。前端只把收到 `done` 的轮次写入对话历史，重试会重新发送本轮请求。
+写出流响应前，使用合适的非 `2xx` 状态和如下错误体。流已开始时，使用 `error` 事件。前端收到 `done` 后保存完成稿，也可凭 `X-Run-Id` 查询服务端已完成的稿件。任务 ID 必须在 CORS 的 `Access-Control-Expose-Headers` 中声明。重试会重新发送本轮请求。
 
 ```json
 {"error":{"code":"INVALID_KNOWLEDGE_PATH","message":"知识库目录 papers 不存在，请检查项目配置。"}}
 ```
 
-可以用 `400` 表示请求格式错误，`422` 表示项目目录或知识库配置不可用，`503` 表示模型或服务暂时不可用。错误文案应帮助用户修复问题。用户点击「停止生成」或删除生成中的对话时，浏览器会中止 HTTP 请求，后端应在连接断开时停止对应任务并释放资源。
+可以用 `400` 表示请求格式错误，`422` 表示项目目录或知识库配置不可用，`503` 表示模型或服务暂时不可用。用户点击「停止生成」时，浏览器会中止 HTTP 请求。删除服务端记录返回 `204`，项目正在运行时返回 `409`。归档和「仅移除本标签页」只影响浏览器记录。
 
 ## 源论文 PDF
 
@@ -107,7 +113,7 @@ Agent ID 固定为 `planner`（统筹规划）、`search`（文献检索）、`a
 
 ## 后端开发任务
 
-1. **服务和联调。** 实现健康检查和流式路由，监听 `35549`。前端开发源包括 `http://localhost:5173` 和 `http://127.0.0.1:5173`，生产构建本地预览使用 `4173`。按实际前端源配置 CORS，处理 `OPTIONS`、`GET`、`POST` 和 `Content-Type` 请求头。响应与错误都返回正确的跨域头。 [Fetch CORS 规范](https://fetch.spec.whatwg.org/#http-cors-protocol)
+1. **服务和联调。** 实现健康检查和流式路由，监听 `35549`。前端开发源包括 `http://localhost:5173` 和 `http://127.0.0.1:5173`，生产构建本地预览使用 `4173`。按实际前端源配置 CORS，允许 `GET`、`POST`、`DELETE` 和 `Content-Type`、`Authorization` 请求头，并暴露 `X-Run-Id`。 [Fetch CORS 规范](https://fetch.spec.whatwg.org/#http-cors-protocol)
 2. **项目和本地 PDF。** 解析工作目录、知识库路径和符号链接，限制实际目录在服务配置允许的范围内。PDF 解析时保留页序、原文段落、文件标识和文献元数据，按工作区和项目隔离检索索引，并支持文件变动后的更新。
 3. **Agent 调度。** 规划者拆解研究问题，检索员找文献，分析员整理可比证据，撰写员生成综述，核查员核对主张和页码。证据缺失时把具体问题退回规划，并通过 `phase` 报告工作中的角色。
 4. **续写和证据。** 用 `history` 与 `references` 作为上下文，按本轮 `question` 修改或补查。后端校验每个引用的原文和页码，证据不足的地方明确标注。修订时交付完整稿件，问答时可以保留现有稿件。
