@@ -101,6 +101,14 @@ Agent ID 固定为 `planner`（统筹规划）、`search`（文献检索）、`a
 {"error":{"code":"INVALID_KNOWLEDGE_PATH","message":"知识库目录 papers 不存在，请检查项目配置。"}}
 ```
 
+HTTP 错误的 `error` 对象和流式 `error` 事件都包含 `code`、`message`，也可以带 `agent`、`providerStatus`、`retryable`。`agent` 沿用上面的 Agent ID。`providerStatus` 是模型服务返回的 HTTP 状态，`retryable` 表示当前配置和输入下是否适合直接重试。失败任务的查询响应也可包含同样的 `error` 对象。
+
+```ndjson
+{"type":"error","code":"MODEL_RATE_LIMITED","message":"请稍后重试。","agent":"writing","providerStatus":429,"retryable":true}
+```
+
+模型鉴权、余额、限流、超时和输出异常使用独立错误码。返回给前端的消息使用可直接展示的处理提示，省略模型服务原始响应和凭据。失败时保留上一份完成稿。
+
 可以用 `400` 表示请求格式错误，`422` 表示项目目录或知识库配置不可用，`503` 表示模型或服务暂时不可用。用户点击「停止生成」时，浏览器会中止 HTTP 请求。删除服务端记录返回 `204`，项目正在运行时返回 `409`。归档和「仅移除本标签页」只影响浏览器记录。
 
 ## 源论文 PDF

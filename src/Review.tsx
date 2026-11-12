@@ -1,8 +1,9 @@
 import { memo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { ArrowUpRight, AtSign, BadgeCheck, BookOpen, Check, ChevronDown, ChevronRight, CircleAlert, FileText, FlaskConical, History, ListChecks, MessageSquareText, NotebookPen, RotateCw, Settings, Workflow } from 'lucide-react'
+import { ArrowUpRight, AtSign, BadgeCheck, BookOpen, Check, ChevronDown, ChevronRight, CircleAlert, FileText, FlaskConical, FolderOpen, History, Info, ListChecks, MessageSquareText, NotebookPen, RotateCw, Settings, Workflow } from 'lucide-react'
 import { testPrompts, verificationLabels } from './demo'
 import type { ReviewRun, ReviewTurn } from './demo'
+import type { ReviewFailure } from './reviewFailure'
 import { citationParts, visibleParagraph } from './response'
 import { agents } from './workflow'
 import type { AgentActivity } from './workflow'
@@ -111,16 +112,18 @@ const PastTurn = memo(function PastTurn({ turn, index, conversations, activeCita
   )
 })
 
-export function Review({ review, conversations, runningPhase, responding, connecting, error, onRetry, onRecover, onSettings, activeCitation, onCitation, onConversation, onSuggestion, onPreviewReport, reportVisible }: {
+export function Review({ review, conversations, runningPhase, responding, connecting, error, onRetry, onRecover, onEditFailure, onSettings, onConfigureProject, activeCitation, onCitation, onConversation, onSuggestion, onPreviewReport, reportVisible }: {
   review: ReviewRun
   conversations: ReviewRun[]
   runningPhase?: AgentActivity
   responding: boolean
   connecting: boolean
-  error?: string
+  error?: ReviewFailure
   onRetry?: () => void
   onRecover?: () => void
+  onEditFailure?: () => void
   onSettings: () => void
+  onConfigureProject: () => void
   activeCitation?: { turn: number; index: number }
   onCitation: (turn: number, index: number, trigger: HTMLButtonElement) => void
   onConversation: (id: string) => void
@@ -134,8 +137,9 @@ export function Review({ review, conversations, runningPhase, responding, connec
   const demo = review.source !== 'backend'
   const backendComplete = !demo && !runningPhase && !responding && !connecting && !error
   const needsReview = review.verification === 'with_warnings' || review.verification === 'no_evidence'
+  const failedAgent = error?.agent ? agents.find(({ id }) => id === error.agent) : undefined
   let workflowStatus = demo ? '流程示例' : '综述已完成'
-  if (error) workflowStatus = '本轮未完成'
+  if (error) workflowStatus = error.informational ? error.title : '本轮未完成'
   else if (connecting) workflowStatus = '正在连接后端…'
   else if (runningPhase) workflowStatus = runningPhase.title
   else if (responding) workflowStatus = '流式响应中'
@@ -184,7 +188,7 @@ export function Review({ review, conversations, runningPhase, responding, connec
         </button>
         <ol className="workflow-steps" id="workflow-steps" hidden={!workflowOpen}>
           {agents.map(({ id, name, task, icon: Icon }) => (
-            <li key={id} data-working={runningPhase?.working.includes(id)}>
+            <li key={id} data-working={runningPhase?.working.includes(id)} data-failed={error?.agent === id}>
               <Icon className="step-icon" size={15} />
               <span><strong>{name}</strong><small>{task}</small></span>
             </li>
@@ -192,22 +196,39 @@ export function Review({ review, conversations, runningPhase, responding, connec
         </ol>
       </section>
       {error && (
-        <div className="review-error">
-          <p role="alert"><CircleAlert size={16} /> <span>{error}</span></p>
-          <div>
+        <div className="review-error" data-informational={error.informational}>
+          <div className="review-error-summary" role={error.informational ? 'status' : 'alert'}>
+            {error.informational ? <Info size={17} /> : <CircleAlert size={17} />}
+            <div>
+              <h2>{error.title}</h2>
+              <p>{error.message}</p>
+            </div>
+          </div>
+          {(failedAgent || error.providerStatus || review.runId || error.code && !error.informational) && (
+            <div className="review-error-details">
+              {failedAgent && <span>出错工位 · {failedAgent.name}</span>}
+              {error.providerStatus && <span>模型服务 HTTP {error.providerStatus}</span>}
+              {error.code && !error.informational && <code>{error.code}</code>}
+              {review.runId && <span>任务 <code>{review.runId}</code></span>}
+            </div>
+          )}
+          {onPreviewReport && <p className="review-error-note">上一份完成稿仍可查看和导出。</p>}
+          <div className="review-error-actions">
             {onRecover && <button className="context-button" type="button" onClick={onRecover}><History size={14} /> 检查上次任务</button>}
-            {onRetry && <button className="context-button" type="button" onClick={onRetry}><RotateCw size={14} /> 重试</button>}
-            <button className="context-button" type="button" onClick={onSettings}><Settings size={14} /> 后端设置</button>
+            {onRetry && <button className="context-button" type="button" onClick={onRetry}><RotateCw size={14} /> 重试本轮</button>}
+            {onEditFailure && <button className="context-button" type="button" onClick={onEditFailure}><NotebookPen size={14} /> 修改本轮</button>}
+            {error.action === 'backend' && <button className="context-button" type="button" onClick={onSettings}><Settings size={14} /> 后端设置</button>}
+            {error.action === 'project' && <button className="context-button" type="button" onClick={onConfigureProject}><FolderOpen size={14} /> 配置项目</button>}
           </div>
         </div>
       )}
-      {(!runningPhase || (!demo && (review.sections.length > 0 || review.reply))) && (
+      {!error && (!runningPhase || (!demo && (review.sections.length > 0 || review.reply))) && (
         <ReportBody
           turn={review}
           index={history.length}
           responding={responding}
           partial={!demo && !backendComplete}
-          hideSections={reportVisible && !responding && !error}
+          hideSections={reportVisible && !responding}
           activeCitation={activeCitation}
           onCitation={onCitation}
         />

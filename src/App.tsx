@@ -14,6 +14,8 @@ import { readRecoverableRuns, readWorkspace, removeReview, saveRecoverableRuns, 
 import type { ProjectConfig, RecoverableRun } from './projects'
 import { reportLength, revealSections } from './response'
 import { NewReview, Review, sectionAnchor } from './Review'
+import { describeReviewFailure } from './reviewFailure'
+import type { ReviewFailure } from './reviewFailure'
 import { ProjectSettings, WorkspaceSettings } from './Settings'
 import { DeleteReviewDialog, Sidebar } from './Sidebar'
 import { useMediaQuery } from './useMediaQuery'
@@ -23,7 +25,7 @@ import type { AgentActivity } from './workflow'
 type View = { kind: 'review'; id: string } | { kind: 'new' | 'library' }
 type PendingRun = { projectId: string; review: ReviewRun } & (
   { kind: 'office'; phase: AgentActivity } | { kind: 'response'; visibleLength?: number } |
-  { kind: 'connecting' } | { kind: 'failed'; message: string }
+  { kind: 'connecting' } | { kind: 'failed'; error: ReviewFailure; checkRun?: boolean }
 )
 type Citation = { turn: number; index: number; fromReport?: boolean }
 type RightPanel = 'office' | 'report' | 'closed'
@@ -113,7 +115,8 @@ export function App() {
     : undefined
   const recoverable = recoverableRuns.find((run) => run.projectId === project.id && run.conversationId === activeReview?.id && run.backendUrl === backend.url)
   const panelScope = viewKey + '/' + (savedReview ? savedReview.history?.length ?? 0 : -1) + '/' + (busy ? 'working' : activeRun ? 'failed' : 'ready')
-  const panel = panelOverride?.scope === panelScope ? panelOverride.panel : busy ? 'office' : latestReport ? 'report' : 'closed'
+  const autoReport = latestReport && (activeRun?.kind !== 'failed' || sidebarInline)
+  const panel = panelOverride?.scope === panelScope ? panelOverride.panel : busy ? 'office' : autoReport ? 'report' : 'closed'
   const showOffice = panel === 'office' && citation === null
   const showReport = panel === 'report' && latestReport !== undefined && citation === null
   const reportDrawer = showReport && !sidebarInline
@@ -397,8 +400,11 @@ export function App() {
       if (backendRequests.current.get(review.id) === controller) completeRun(projectId, { ...review, ...output, runId: current.runId })
     } catch (failure) {
       if (backendRequests.current.get(review.id) !== controller) return
-      const message = controller.signal.aborted ? '已停止生成。' : failure instanceof Error ? failure.message : '后端请求失败。'
-      updateRun({ projectId, review: current, kind: 'failed', message })
+      const error = controller.signal.aborted ? describeReviewFailure('可以重试，或修改问题后重新提交。', 'RUN_STOPPED')
+        : describeReviewFailure(failure)
+      const checkRun = Boolean(current.runId) && !controller.signal.aborted &&
+        !(failure instanceof BackendRequestError && failure.status === 200)
+      updateRun({ projectId, review: current, kind: 'failed', error, checkRun })
     } finally {
       if (backendRequests.current.get(review.id) === controller) backendRequests.current.delete(review.id)
     }
@@ -423,18 +429,24 @@ export function App() {
       if (backendRequests.current.get(conversationId) !== controller) return
       if (result.status === 'completed') {
         completeRun(projectId, { ...review, ...result.output, reportUnchanged: saved ? result.output.reportUnchanged : undefined })
+      } else if (result.status === 'failed') {
+        updateRun({ projectId, review, kind: 'failed', error: describeReviewFailure(result.error) })
       } else {
         if (result.status === 'interrupted') setRecoverableRuns((previous) => previous.filter((run) => run.runId !== runId))
-        updateRun({ projectId, review, kind: 'failed', message: result.status === 'running'
-          ? '后端仍在处理上次任务，可稍后检查结果。' : '上次任务已中断，可重试这一轮。' })
+        const checkRun = result.status === 'running'
+        const error = checkRun ? describeReviewFailure('稍后可检查任务结果。', 'RUN_PENDING')
+          : describeReviewFailure('可以重试，或修改问题后重新提交。', 'RUN_INTERRUPTED')
+        updateRun({ projectId, review, kind: 'failed', error, checkRun })
       }
     } catch (failure) {
       if (backendRequests.current.get(conversationId) !== controller) return
-      if (failure instanceof BackendRequestError && failure.status === 404) {
+      const missing = failure instanceof BackendRequestError && failure.status === 404
+      if (missing) {
         setRecoverableRuns((previous) => previous.filter((run) => run.runId !== runId))
       }
-      updateRun({ projectId, review, kind: 'failed', message: controller.signal.aborted ? '已停止检查任务。'
-        : failure instanceof Error ? failure.message : '暂时无法读取上次任务结果。' })
+      const error = controller.signal.aborted ? describeReviewFailure('可以再次检查任务结果。', 'CHECK_STOPPED')
+        : describeReviewFailure(failure instanceof Error ? failure : '暂时无法读取上次任务结果。')
+      updateRun({ projectId, review, kind: 'failed', error, checkRun: !missing })
     } finally {
       if (backendRequests.current.get(conversationId) === controller) backendRequests.current.delete(conversationId)
     }
@@ -614,10 +626,16 @@ export function App() {
                   runningPhase={activePhase}
                   responding={activeRun?.kind === 'response'}
                   connecting={activeRun?.kind === 'connecting'}
-                  error={activeRun?.kind === 'failed' ? activeRun.message : undefined}
-                  onRetry={activeRun?.kind === 'failed' && !activeArchived && !backendNotice ? () => void runBackend(activeRun.review) : undefined}
-                  onRecover={activeRun?.kind === 'failed' && recoverable ? () => void recoverRun(recoverable) : undefined}
+                  error={activeRun?.kind === 'failed' ? activeRun.error : undefined}
+                  onRetry={activeRun?.kind === 'failed' && activeRun.error.retry && !activeArchived && !backendNotice
+                    ? () => void runBackend(activeRun.review) : undefined}
+                  onRecover={activeRun?.kind === 'failed' && activeRun.checkRun && recoverable ? () => void recoverRun(recoverable) : undefined}
+                  onEditFailure={activeRun?.kind === 'failed' && !activeArchived && !backendNotice && activeRun.error.code !== 'RUN_PENDING' ? () => {
+                    updateDraft({ question: activeRun.review.question, referenceIds: activeRun.review.referenceIds ?? [] })
+                    input.current?.focus()
+                  } : undefined}
                   onSettings={() => settingsDialog.current?.showModal()}
+                  onConfigureProject={() => openProjectForm('edit')}
                   activeCitation={inspectorTab === 'citations' ? citation ?? undefined : undefined}
                   onCitation={showCitation}
                   onConversation={openReview}

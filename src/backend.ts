@@ -30,8 +30,10 @@ type ReviewRequest = {
 }
 type ReviewUpdate = { kind: 'phase'; phase: AgentActivity } | ({ kind: 'report' } & ReviewOutput)
 
+type BackendErrorDetails = { code?: string; agent?: AgentId; providerStatus?: number; retryable?: boolean }
+
 export class BackendRequestError extends Error {
-  constructor(message: string, readonly status: number, readonly code?: string) {
+  constructor(message: string, readonly status: number, readonly details: BackendErrorDetails = {}) {
     super(message)
   }
 }
@@ -150,6 +152,17 @@ function isAgentList(value: unknown): value is AgentId[] {
   return Array.isArray(value) && value.every(isAgentId)
 }
 
+function readBackendError(value: unknown, status: number, fallback: string, fallbackCode?: string) {
+  const details = isRecord(value) ? value : {}
+  return new BackendRequestError(isText(details.message) ? details.message : fallback, status, {
+    code: isText(details.code) ? details.code : fallbackCode,
+    agent: isAgentId(details.agent) ? details.agent : undefined,
+    providerStatus: isPositiveInteger(details.providerStatus) && details.providerStatus >= 300 && details.providerStatus <= 599
+      ? details.providerStatus : undefined,
+    retryable: typeof details.retryable === 'boolean' ? details.retryable : undefined,
+  })
+}
+
 function isPhase(event: Record<string, unknown>): event is AgentActivity & Record<string, unknown> {
   const { title, summary, working, done, feedback, taskDetails } = event
   return isText(title) && typeof summary === 'string' &&
@@ -172,7 +185,13 @@ function isEvidence(item: unknown): item is EvidenceItem {
 async function backendFetch({ url, token }: BackendSettings, endpoint: string, init: RequestInit) {
   let response: Response
   const headers = new Headers(init.headers)
-  if (token) headers.set('Authorization', 'Bearer ' + token)
+  if (token) {
+    try {
+      headers.set('Authorization', 'Bearer ' + token)
+    } catch {
+      throw new BackendRequestError('请核对后端连接设置中的访问令牌。', 0, { code: 'AUTH_REQUIRED', retryable: false })
+    }
+  }
   try {
     response = await fetch(url + apiPrefix + endpoint, {
       ...init,
@@ -183,14 +202,11 @@ async function backendFetch({ url, token }: BackendSettings, endpoint: string, i
     })
   } catch (failure) {
     if (init.signal?.aborted) throw failure
-    throw new BackendRequestError('无法连接后端 ' + url + '。请检查服务地址和跨域配置。', 0)
+    throw new BackendRequestError('请确认后端已启动，并检查服务地址、访问令牌和跨域配置。', 0, { code: 'BACKEND_UNREACHABLE' })
   }
   if (!response.ok) {
     const payload: unknown = await response.json().catch(() => null)
-    if (isRecord(payload) && isRecord(payload.error) && isText(payload.error.message)) {
-      throw new BackendRequestError(payload.error.message, response.status, isText(payload.error.code) ? payload.error.code : undefined)
-    }
-    throw new BackendRequestError('后端返回 HTTP ' + response.status + '。', response.status)
+    throw readBackendError(isRecord(payload) ? payload.error : undefined, response.status, '后端返回 HTTP ' + response.status + '。')
   }
   return response
 }
@@ -214,7 +230,7 @@ export async function checkBackend(backend: BackendSettings, signal: AbortSignal
 }
 
 function invalidStream() {
-  return new Error('后端返回的数据不符合 Folio v1 流式接口。')
+  return new BackendRequestError('请确认后端支持 Folio v1，并检查代理是否完整转发了响应。', 0, { code: 'INVALID_STREAM' })
 }
 
 function isVerification(value: unknown): value is NonNullable<ReviewTurn['verification']> {
@@ -285,6 +301,11 @@ export async function getBackendRun(backend: BackendSettings, runId: string, pro
   const data: unknown = await response.json()
   if (!isRecord(data) || data.id !== runId || data.project_id !== projectId || data.conversation_id !== conversationId) throw invalidStream()
   if (data.status === 'running') return { status: 'running' } as const
+  if (data.status === 'failed') {
+    const error = readBackendError(data.error, 200, '上次任务执行失败，可根据错误码检查后端日志。',
+      isText(data.error_code) ? data.error_code : undefined)
+    return { status: 'failed', error } as const
+  }
   if (data.status !== 'completed') return { status: 'interrupted' } as const
   const report = data.report
   if (!isRecord(report) || !Array.isArray(report.sections) || !Array.isArray(report.evidence) ||
@@ -322,7 +343,9 @@ export async function streamBackendReview(
   previousReport?: ReviewTurn,
 ): Promise<ReviewOutput> {
   const body = JSON.stringify(request)
-  if (new TextEncoder().encode(body).length > maxRequestBytes) throw new Error('本轮内容超过请求大小限制，请减少引用对话。')
+  if (new TextEncoder().encode(body).length > maxRequestBytes) {
+    throw new BackendRequestError('请减少引用的对话，或缩小本轮研究范围。', 413, { code: 'REQUEST_TOO_LARGE' })
+  }
 
   let sections: ReviewSection[] = []
   let evidence: Evidence[] = []
@@ -396,7 +419,7 @@ export async function streamBackendReview(
       }
       case 'error':
         if (!isText(event.code) || !isText(event.message)) throw invalidStream()
-        throw new Error(event.message)
+        throw readBackendError(event, 200, '后端执行失败。')
       default:
         throw invalidStream()
     }
@@ -431,7 +454,7 @@ export async function streamBackendReview(
     while (!completed) {
       const chunk = await reader.read().catch((failure) => {
         if (requestSignal.aborted) throw failure
-        throw new Error('与后端的连接已中断。')
+        throw new BackendRequestError('与后端的连接已中断，可以检查任务结果或重试。', 0, { code: 'STREAM_DISCONNECTED' })
       })
       if (chunk.done) {
         consumeLine(buffer + decoder.decode())
@@ -439,7 +462,7 @@ export async function streamBackendReview(
       }
       resetIdle()
       bytes += chunk.value.byteLength
-      if (bytes > maxStreamBytes) throw new Error('后端响应超过大小限制。')
+      if (bytes > maxStreamBytes) throw new BackendRequestError('请缩小研究范围以减少报告长度。', 0, { code: 'RESPONSE_TOO_LARGE' })
       const lines = (buffer + decoder.decode(chunk.value, { stream: true })).split('\n')
       buffer = lines.pop() ?? ''
       if (buffer.length > maxStreamLine) throw invalidStream()
@@ -449,10 +472,12 @@ export async function streamBackendReview(
         if (completed) break
       }
     }
-    if (!completed) throw new Error('后端连接已结束，本轮综述尚未完成。')
+    if (!completed) throw new BackendRequestError('后端在综述完成前结束了连接，可以检查任务结果或重试。', 0, { code: 'STREAM_DISCONNECTED' })
     return { sections, evidence, reply, reportUnchanged, verification }
   } catch (failure) {
-    if (idle.signal.aborted && !signal.aborted) throw new Error('后端暂未发送进度，连接已超时。')
+    if (idle.signal.aborted && !signal.aborted) {
+      throw new BackendRequestError('后端暂未发送进度，请检查服务或代理的流式连接。', 0, { code: 'STREAM_TIMEOUT' })
+    }
     throw failure
   } finally {
     window.clearTimeout(timeout)

@@ -933,24 +933,55 @@ h1 {
   font-size: .84rem;
 }
 
-.review-error p {
+.review-error-summary {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
-  margin: 0;
+  gap: 8px;
   color: var(--danger-text);
+}
+
+.review-error[data-informational="true"] .review-error-summary {
+  color: var(--text);
+}
+
+.review-error-summary h2 {
+  margin: 0 0 3px;
+  font-size: .9rem;
+}
+
+.review-error p {
+  margin: 0;
+  color: var(--body-text);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
-.review-error svg {
+.review-error-summary > svg {
+  flex: none;
   margin-top: 2px;
 }
 
-.review-error > div {
+.review-error-details,
+.review-error-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.review-error-details,
+.review-error .review-error-note {
+  color: var(--muted);
+  font-size: .76rem;
+  overflow-wrap: anywhere;
+}
+
+.review-error-details > * + *::before {
+  content: '·';
+  margin-right: 6px;
+}
+
+.workflow-steps li[data-failed="true"] .step-icon {
+  color: var(--danger-text);
 }
 
 .response-status {
