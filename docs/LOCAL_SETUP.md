@@ -19,6 +19,14 @@
 或者进入 `backend` 目录，执行 `..\.venv\Scripts\python.exe -m app`。
 不要重复启动相同端口。
 
+macOS 和 Linux 可在仓库根目录运行以下命令。
+
+```sh
+python3.14 -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements.txt
+.venv/bin/python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 35549
+```
+
 ## 模型配置
 
 复制 `.env.example` 为 `.env`（仅首次；不要覆盖已有密钥），至少配置：
@@ -42,6 +50,8 @@ MODEL_NAME=你的账号实际可用的模型标识
 
 ## 前端联调
 
+从 `frontend` 分支的工作区启动新版 Folio，从 `backend/zhouxinhao/bootstrap` 工作区启动后端。后端分支随附的前端快照可用于基础接口测试。
+
 需要 Node.js 22.12 或更高的兼容版本。机器现有 `E:\nodejs` 为 Node 16，不能用来运行此项目的 Vite；
 请在前端终端先执行 `node --version` 确认版本。
 
@@ -59,7 +69,7 @@ npm run dev
 ```
 
 先删除前端示例项目里不适用于本机的 `~/Research/...` 路径，再设置实际路径。
-将自备、可提取文字的 PDF 放进 `data/papers`。没有新增论文时也会重新检查内容摘要，文件变更和删除会更新索引。
+将自备、可提取文字的 PDF 放进 `data/papers`。索引依据文件元数据识别变动，只为新增或变更的 PDF 重新计算摘要并更新记录。打开源 PDF 时会核对内容摘要。
 空库或扫描 PDF 会明确显示证据缺口/OCR 提示，不会生成假研究结论。
 
 需要访问仓库以外的论文目录时，在 `.env` 增加精确允许目录，例如：
@@ -91,11 +101,12 @@ ALLOWED_ROOTS=["D:/AgentRe","D:/ResearchPapers"]
 ## 数据、状态与运行边界
 
 - `data/runtime/workspace.sqlite3` 保存项目索引、任务、Agent 产物、草稿版本、核验报告及最终稿。
-- `GET /api/v1/runs/{run_id}` 查看状态和审计记录；流响应 `X-Run-Id` 提供运行 ID。
+- `GET /api/v1/runs/{run_id}` 查看状态和审计记录。流响应 `X-Run-Id` 提供运行 ID，查询时可带 `projectId`、`conversationId` 和 `includeArtifacts=false`。
+- `GET /api/v1/folders` 浏览允许的目录，`POST /api/v1/projects/validate` 校验项目路径。`DELETE /api/v1/projects/{project_id}/conversations/{conversation_id}` 删除对应报告和审计记录。
 - 用户停止或断开连接时取消模型请求和 PDF 子进程；服务器重启后原运行中任务标记 `interrupted`，不自动恢复。
 - 同一项目同时只能运行一个任务，默认最多并行处理两个不同项目。
-- 当前为单用户本机服务，没有登录鉴权。请保持回环监听及单个 worker；不要直接部署为公共多人服务。
-- `health`、流式协议、错误格式及 PDF 路由见 [前端 API 约定](backend-api.md)。
+- 默认仅接受回环连接。若通过 HTTPS 反向代理供单个所有者使用，在 `.env` 配置独立的随机 `ACCESS_TOKEN`，并在 Folio 的后端连接设置中填写它。服务按 `Authorization: Bearer …` 验证令牌。请使用单个 worker。
+- `health`、流式协议、错误格式及 PDF 路由见 [`frontend` 分支的接口约定](https://github.com/iamwzzr/multi-agent-literature-review/blob/frontend/docs/backend-api.md)。
 - 日志记录任务/项目/对话 ID、错误类型，不输出 API 密钥；论文摘录和模型产物保存在本地 SQLite。
 - `.env`、PDF、运行数据库、虚拟环境、`node_modules`、`dist` 均不提交。
 
