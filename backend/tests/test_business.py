@@ -408,6 +408,7 @@ def test_stream_uses_actual_http_model_adapter(setup):
         result = await scripted.complete(message['role'], message['task'], message['data'], schemas[message['role']])
         return httpx.Response(200,json={'choices':[{'message':{'content':result.model_dump_json()}}]})
     adapter = ModelClient(config,httpx.MockTransport(provider))
+    payload['architecture'] = 'legacy'
     with local_client(create_app(config,adapter)) as client:
         report = output(events(client.post('/api/v1/reviews/stream',json=payload)))
         assert report['evidence'] and report['sections']

@@ -58,7 +58,7 @@ async def read_json(request, schema, max_bytes):
         raise AppError('INVALID_REQUEST', '请求格式无效，请检查研究问题、项目配置和历史数据。', 422) from None
 
 
-def create_app(config: Settings | None = None, model=None):
+def create_app(config: Settings | None = None, model=None, research_agents=None):
     config = config or settings
     store = Store(config.runtime_dir)
     library = Library(config, store)
@@ -125,7 +125,22 @@ def create_app(config: Settings | None = None, model=None):
 
     @app.get('/api/v1/papers/pdf', tags=['papers'])
     async def source_pdf(projectId: str, paperId: str):
-        path = await asyncio.to_thread(library.source, projectId, paperId)
+        try:
+            path = await asyncio.to_thread(library.source, projectId, paperId)
+        except AppError as error:
+            if error.code != 'PAPER_NOT_FOUND':
+                raise
+            import hashlib
+            from pathlib import Path
+            from .research.workspace import Workspace
+            from .library import digest_file
+            document = Workspace(store, projectId, 'read').get(paperId)
+            path = Path(document.get('path', '')).resolve()
+            allowed = (config.runtime_dir / 'originals' / hashlib.sha256(projectId.encode()).hexdigest()).resolve()
+            if not path.is_relative_to(allowed) or not path.is_file():
+                raise AppError('PAPER_NOT_FOUND', '该项目中不存在对应的原始文档。',404)
+            if await asyncio.to_thread(digest_file,path) != document.get('content_hash'):
+                raise AppError('ORIGINAL_CHANGED', '原始文档版本已变化。',409)
         return FileResponse(path, media_type='application/pdf', filename=path.name,
                             content_disposition_type='inline', headers={'Cache-Control': 'no-store'})
 
@@ -149,9 +164,14 @@ def create_app(config: Settings | None = None, model=None):
             app.state.active.discard(project_id)
         return Response(status_code=204)
 
+    @app.post('/api/v2/reviews/stream', tags=['reviews'])
     @app.post('/api/v1/reviews/stream', tags=['reviews'])
     async def review(request: Request):
         data = await read_json(request, ReviewRequest, config.max_request_bytes)
+        if request.url.path.startswith('/api/v2/') and data.architecture != 'three_agent':
+            raise AppError('INVALID_ARCHITECTURE', '第一版 v2 接口固定使用三个 Agent。',422)
+        if data.architecture == 'legacy' and data.source_mode != 'local':
+            raise AppError('SOURCE_POLICY_DENIED', '旧兼容接口仅支持本地资料。',422)
         scope = await asyncio.to_thread(resolve_project, data.project, config)
         # Validate pre-stream configuration, so the frontend gets a useful HTTP error.
         app.state.model.check()
@@ -171,7 +191,11 @@ def create_app(config: Settings | None = None, model=None):
             app.state.active.discard(data.project.id)
             log.error('review_start_failed run=%s error_type=%s', run_id, type(failure).__name__)
             raise AppError('INTERNAL_ERROR', '后端无法启动本轮任务，请检查服务日志和运行目录。', 500) from None
-        workflow = Workflow(config, store, library, app.state.model, run_id)
+        if data.architecture == 'three_agent' and (isinstance(app.state.model, ModelClient) or research_agents is not None):
+            from .research.engine import ThreeAgentWorkflow
+            workflow = ThreeAgentWorkflow(config, store, library, app.state.model, run_id, agents=research_agents)
+        else:
+            workflow = Workflow(config, store, library, app.state.model, run_id)
         log.info('review_started run=%s project=%s conversation=%s', run_id, data.project.id, data.conversationId)
         producer = None
         released = False
@@ -220,6 +244,11 @@ def create_app(config: Settings | None = None, model=None):
                         error = AppError('RUN_TIMEOUT', '本轮运行超时，请缩小文献集或研究范围。', retryable=False)
                     else:
                         error = AppError('INTERNAL_ERROR', '后端执行失败，请检查服务日志和输入文献。', 500)
+                    if not isinstance(cause, AppError):
+                        import traceback
+                        await asyncio.to_thread(store.artifact,run_id,'exception_diagnostic', {
+                            'exception_type':type(cause).__name__,
+                            'frames':[{'file':f.filename,'function':f.name,'line':f.lineno} for f in traceback.extract_tb(cause.__traceback__)[-8:]]})
                     details = error.details()
                     log.error('review_failed run=%s code=%s agent=%s error_type=%s', run_id, error.code, error.agent, type(cause).__name__)
                     try:
@@ -249,6 +278,35 @@ def create_app(config: Settings | None = None, model=None):
         return StreamingResponse(stream(), media_type='application/x-ndjson', headers={
             'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no', 'X-Run-Id': run_id,
         }, background=BackgroundTask(release_run))
+
+    @app.post('/api/v2/projects/{project_id}/uploads')
+    async def upload(project_id: str, request: Request):
+        import hashlib
+        from .research.workspace import Workspace, identifier
+        if request.headers.get('content-type','').split(';')[0] != 'application/pdf':
+            raise AppError('INVALID_FILE', '上传正文必须是 application/pdf。', 415)
+        content = bytearray()
+        async for part in request.stream():
+            if len(content)+len(part)>config.max_pdf_bytes:
+                raise AppError('PDF_TOO_LARGE','PDF 超出文件大小限制。',413)
+            content.extend(part)
+        if not content.startswith(b'%PDF'):
+            raise AppError('INVALID_FILE','上传文件不是 PDF。',422)
+        from .library import parse_pdf
+        folder=config.runtime_dir/'uploads'/hashlib.sha256(project_id.encode()).hexdigest()
+        folder.mkdir(parents=True,exist_ok=True)
+        path=folder/(hashlib.sha256(content).hexdigest()+'.pdf')
+        if not path.exists(): path.write_bytes(content)
+        await parse_pdf(path, config)
+        ws=Workspace(store,project_id,'upload')
+        file_id=identifier('upload')
+        ws.save('upload',{'kind':'upload','path':str(path),'content_hash':hashlib.sha256(content).hexdigest()},file_id)
+        return {'file_id':file_id}
+
+    @app.get('/api/v2/projects/{project_id}/objects/{object_id}')
+    async def research_object(project_id: str, object_id: str):
+        from .research.workspace import Workspace
+        return Workspace(store,project_id,'read').get(object_id)
 
     return app
 

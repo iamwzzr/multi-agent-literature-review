@@ -1,18 +1,18 @@
 # Multi-Agent AI Research Assistant for Academic Literature Review
 
-A COMP5584 group project exploring how specialized LLM agents can collaborate to produce evidence-grounded literature reviews from locally stored academic papers.
+A COMP5584 group project exploring how specialized LLM agents can collaborate to produce evidence-grounded literature reviews from local PDFs and verified online academic sources.
 
 ## Project Goal
 
-Given a research question and a local collection of PDF papers, the system will use real model APIs to retrieve evidence, analyze findings, synthesize a review, and verify claims and citations.
+Given a research question and local, online, or mixed paper sources, the system will use real model APIs to retrieve evidence, analyze findings, synthesize a review, and verify claims and citations.
 
-## Planned Agents
+## Backend agents
 
-- **Supervisor / Planner** decomposes the research question, assigns tasks, and coordinates follow-up.
-- **Search Agent** retrieves candidate papers and records relevant passages and page numbers.
-- **Analysis Agent** compares evidence, methods, findings, and limitations.
-- **Writing Agent** drafts the structured review with citations.
-- **Verification Agent** checks facts and citations, and routes evidence gaps back to the planner before release.
+- **Researcher** retrieves and reads papers, registers original evidence, and responds to targeted evidence requests.
+- **Reporter** synthesizes scoped claims and comparison rows, and identifies evidence gaps.
+- **Reviewer** rereads source passages and checks claims, citations, comparison conditions, and inference scope.
+
+Ordinary Python code handles routing, permissions, budgets, and version gates. The current frontend still shows five legacy activity desks; the three-agent UI integration is pending.
 
 ## Collaboration
 
@@ -22,7 +22,7 @@ Important claims will link back to specific papers and PDF pages. The final outp
 
 ## Scope and Status
 
-- Paper retrieval is limited to a configured local folder; no online paper search is planned for the initial version.
+- The backend supports local PDFs, online arXiv discovery with identity/PDF checks, and hybrid evidence collection. The current frontend defaults to local mode; mode selection and upload controls are pending.
 - Cloud model APIs may receive selected paper excerpts; local retrieval does not mean fully offline processing.
 - API credentials and paper files must not be committed to this repository.
 - This branch includes the frontend and a Python 3.14 backend for local PDF evidence retrieval, multi-agent synthesis, verification, bounded follow-up, and reviewed report streaming. Real-model acceptance requires local API credentials and papers.
@@ -75,3 +75,10 @@ See [Windows / Python 3.14 setup](docs/LOCAL_SETUP.md). The backend implements t
 ## Backend delivery
 
 [Backend delivery checklist](docs/BACKEND_HANDOFF_CHECKLIST.md) lists the implemented features, local verification results, setup steps, and remaining work.
+
+
+## Three-agent backend v1
+
+Implementation and API: [THREE_AGENT_V1.md](docs/THREE_AGENT_V1.md). Design baseline: [DESIGN.md](DESIGN.md). Actual acceptance and unexecuted experiments: [EVALUATION.md](EVALUATION.md). The backend now defaults to three LangChain agents; source modes are local/online/hybrid. Frontend source files were not modified for this upgrade.
+
+Actual validation: 69 backend tests passed and a focused real-model task completed with review pass. Several low-budget multi-paper samples remain partial; full product acceptance and comparative quality/cost experiments are pending. See [the test report](docs/BACKEND_TEST_REPORT_2026-11-14.md) and [frontend integration / local corpus preparation](docs/FRONTEND_V1_HANDOFF.md).

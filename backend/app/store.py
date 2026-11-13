@@ -100,9 +100,11 @@ class Store:
 
     def artifact(self, run_id, kind, payload):
         with self.connect() as db:
-            seq = db.execute('SELECT COALESCE(MAX(seq),0)+1 FROM artifacts WHERE run_id=?', (run_id,)).fetchone()[0]
-            db.execute('INSERT INTO artifacts VALUES (?,?,?,?,?)', (
-                run_id, seq, kind, dump(payload), datetime.now(timezone.utc).isoformat()))
+            # Allocate the sequence and insert under SQLite's single write statement.
+            # SELECT MAX followed by a separate INSERT races across LangChain tool threads.
+            db.execute('''INSERT INTO artifacts(run_id,seq,kind,payload,created_at)
+                          SELECT ?,COALESCE(MAX(seq),0)+1,?,?,? FROM artifacts WHERE run_id=?''', (
+                run_id, kind, dump(payload), datetime.now(timezone.utc).isoformat(), run_id))
 
     def finish(self, run_id, status, report=None, code=None, error=None):
         with self.connect() as db:

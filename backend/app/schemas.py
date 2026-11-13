@@ -1,5 +1,7 @@
 from typing import Annotated, Literal
 
+from .research.contracts import Budget
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -52,11 +54,27 @@ class Reference(StrictModel):
 
 
 class ReviewRequest(StrictModel):
+    architecture: Literal['three_agent', 'legacy'] = 'three_agent'
+    source_mode: Literal['local', 'online', 'hybrid'] = 'local'
+    allow_local_metadata_lookup: bool = False
+    online_query: str = Field(default='', max_length=1000)
+    subquestions: list[dict[str, str]] = Field(default_factory=list, max_length=10)
+    research_scope: dict = Field(default_factory=dict)
+    output_requirements: dict = Field(default_factory=dict)
+    uploaded_file_ids: list[str] = Field(default_factory=list, max_length=20)
+    research_budget: Budget | None = None
     conversationId: str = Field(min_length=1, max_length=128)
     project: Project
     question: str = Field(min_length=1, max_length=400)
     history: list[ContextTurn] = Field(default_factory=list, max_length=30)
     references: list[Reference] = Field(default_factory=list, max_length=10)
+
+    @field_validator('subquestions')
+    @classmethod
+    def valid_subquestions(cls, values):
+        if any(not value.get('question','').strip() for value in values):
+            raise ValueError('子问题必须包含非空 question')
+        return values
 
     @field_validator("question")
     @classmethod

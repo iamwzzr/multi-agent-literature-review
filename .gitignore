@@ -21,3 +21,6 @@ dist/
 
 # Local development tools
 .tools/
+
+# Local acceptance records may contain paper excerpts
+data/manual-test-results/
