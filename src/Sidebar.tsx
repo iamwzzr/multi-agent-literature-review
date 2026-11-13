@@ -220,26 +220,44 @@ function ConversationActions({ title, archived, onArchive, onDelete }: {
   )
 }
 
-export function DeleteReviewDialog({ review, onDelete, onClose }: { review: ReviewRun; onDelete: () => void; onClose: () => void }) {
+export function DeleteReviewDialog({ review, onDelete, onClose }: { review: ReviewRun; onDelete: (localOnly: boolean) => Promise<void>; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const cancel = useRef<HTMLButtonElement>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     if (!dialog.current?.open) dialog.current?.showModal()
     cancel.current?.focus()
   }, [])
 
+  async function confirm(localOnly: boolean) {
+    setDeleting(true)
+    setError('')
+    try {
+      await onDelete(localOnly)
+    } catch (failure) {
+      setDeleting(false)
+      setError(failure instanceof Error ? failure.message : '无法删除对话。')
+    }
+  }
+
   return (
-    <dialog className="page-dialog delete-dialog" ref={dialog} aria-labelledby="delete-review-title" aria-describedby="delete-review-detail" onClose={onClose}>
+    <dialog className="page-dialog delete-dialog" ref={dialog} aria-labelledby="delete-review-title" aria-describedby="delete-review-detail" onClose={onClose}
+      onCancel={(event) => { if (deleting) event.preventDefault() }}>
       <div className="dialog-toolbar">
         <span id="delete-review-title"><Trash2 size={16} /> 删除对话</span>
-        <button className="icon-button" type="button" aria-label="关闭删除确认" onClick={() => dialog.current?.close()}><X size={17} /></button>
+        <button className="icon-button" type="button" disabled={deleting} aria-label="关闭删除确认" onClick={() => dialog.current?.close()}><X size={17} /></button>
       </div>
       <div className="delete-dialog-body">
-        <p id="delete-review-detail">「{review.title}」及其所有回复将被删除，无法恢复。</p>
+        <p id="delete-review-detail">{review.source === 'backend'
+          ? `删除「${review.title}」及原后端保存的报告与运行记录。仅移除本标签页会保留后端记录。`
+          : `「${review.title}」及其所有回复将被删除，无法恢复。`}</p>
+        {error && <p role="alert">{error}</p>}
         <div className="dialog-actions">
-          <button ref={cancel} type="button" onClick={() => dialog.current?.close()}>取消</button>
-          <button className="danger-button" type="button" onClick={() => { dialog.current?.close(); onDelete() }}>删除对话</button>
+          <button ref={cancel} type="button" disabled={deleting} onClick={() => dialog.current?.close()}>取消</button>
+          {review.source === 'backend' && <button type="button" disabled={deleting} onClick={() => void confirm(true)}>仅移除本标签页</button>}
+          <button className="danger-button" type="button" disabled={deleting} onClick={() => void confirm(false)}>{deleting ? '删除中…' : '删除对话'}</button>
         </div>
       </div>
     </dialog>

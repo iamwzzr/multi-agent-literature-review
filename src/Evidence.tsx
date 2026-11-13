@@ -1,5 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowUpRight, BookOpen, ChevronRight, FileText, Folder, Link2, List, Quote, SlidersHorizontal, X } from 'lucide-react'
+import { fetchSourcePdf, pdfBackendUrl } from './backend'
+import type { BackendSettings } from './backend'
 import type { Evidence, Paper, ReviewTurn } from './demo'
 import type { Project } from './projects'
 
@@ -9,17 +11,64 @@ function paperAttribution({ author, year }: Paper) {
   return year === null ? author : author + ' · ' + year
 }
 
-function SourcePdfLink({ evidence }: { evidence: Evidence }) {
-  if (!evidence.pdfUrl) return null
+function SourcePdfLink({ evidence, backend }: { evidence: Evidence; backend: BackendSettings }) {
+  const [pdf, setPdf] = useState<string>()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const request = useRef<AbortController | null>(null)
+  const blob = useRef<string | null>(null)
+
+  useEffect(() => () => {
+    request.current?.abort()
+    if (blob.current) URL.revokeObjectURL(blob.current)
+  }, [])
+
+  const { pdfUrl, page } = evidence
+  if (!pdfUrl || !pdfBackendUrl(pdfUrl)) return null
+  if (pdfBackendUrl(pdfUrl) !== backend.url) return <p>连接此引用所属的后端后可查看源 PDF。</p>
+  if (backend.token) {
+    async function openPdf() {
+      if (!pdfUrl || request.current) return
+      const controller = new AbortController()
+      request.current = controller
+      setLoading(true)
+      setError('')
+      try {
+        const file = await fetchSourcePdf(backend, pdfUrl, controller.signal)
+        if (controller.signal.aborted) return
+        blob.current = URL.createObjectURL(file)
+        setPdf(blob.current + '#page=' + page)
+      } catch (failure) {
+        if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : '无法读取源 PDF。')
+      } finally {
+        request.current = null
+        if (!controller.signal.aborted) setLoading(false)
+      }
+    }
+    return pdf ? (
+      <>
+        <iframe className="source-pdf-viewer" src={pdf} title={`源 PDF · 第 ${page} 页`} />
+        <a className="preview-button source-pdf-link" href={pdf} target="_blank" rel="noopener noreferrer">在新标签页打开 <ArrowUpRight size={14} /></a>
+      </>
+    ) : (
+      <>
+        <button className="preview-button source-pdf-link" type="button" disabled={loading} onClick={() => void openPdf()}>
+          <FileText size={15} /> {loading ? '读取 PDF…' : `打开源 PDF · 第 ${page} 页`}
+        </button>
+        {error && <p role="alert">{error}</p>}
+      </>
+    )
+  }
   return (
-    <a className="preview-button source-pdf-link" href={evidence.pdfUrl} target="_blank" rel="noopener noreferrer">
-      <FileText size={15} /> 打开源 PDF · 第 {evidence.page} 页 <ArrowUpRight className="preview-arrow" size={14} />
+    <a className="preview-button source-pdf-link" href={pdfUrl} target="_blank" rel="noopener noreferrer">
+      <FileText size={15} /> 打开源 PDF · 第 {page} 页 <ArrowUpRight className="preview-arrow" size={14} />
     </a>
   )
 }
 
-export function EvidenceInspector({ review, citation, tab, drawer, onTab, onCitation, onPreview, onJump, onClose }: {
+export function EvidenceInspector({ review, backend, citation, tab, drawer, onTab, onCitation, onPreview, onJump, onClose }: {
   review: ReviewTurn
+  backend: BackendSettings
   citation: number
   tab: InspectorTab
   drawer: boolean
@@ -79,7 +128,7 @@ export function EvidenceInspector({ review, citation, tab, drawer, onTab, onCita
             <button className="preview-button" type="button" onClick={() => onPreview(evidence)}>
               <FileText size={15} /> {evidence.source ? '查看原文摘录' : '查看示例页'} <ArrowUpRight className="preview-arrow" size={14} />
             </button>
-            <SourcePdfLink evidence={evidence} />
+            <SourcePdfLink key={evidence.pdfUrl} evidence={evidence} backend={backend} />
           </section>
 
           <section className="citation-index" aria-labelledby="citation-index-title">
@@ -177,7 +226,7 @@ export function Library({ project, onConfigure, onPreview }: {
   )
 }
 
-export function PagePreview({ evidence, onClose }: { evidence: Evidence; onClose: () => void }) {
+export function PagePreview({ evidence, backend, onClose }: { evidence: Evidence; backend: BackendSettings; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {
@@ -198,7 +247,7 @@ export function PagePreview({ evidence, onClose }: { evidence: Evidence; onClose
         <p className="paper-meta">{paperAttribution(evidence.paper)}</p>
         <p>{evidence.context}</p>
         <blockquote><mark>{evidence.excerpt}</mark></blockquote>
-        <SourcePdfLink evidence={evidence} />
+        <SourcePdfLink key={evidence.pdfUrl} evidence={evidence} backend={backend} />
         <div className="paper-page-number">{evidence.page} / {evidence.paper.pages}</div>
       </div>
     </dialog>

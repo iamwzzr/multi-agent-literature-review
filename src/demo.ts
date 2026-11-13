@@ -23,6 +23,12 @@ export type ReviewSection = {
   paragraphs: string[]
 }
 
+export const verificationLabels = {
+  passed: '已通过核验',
+  with_warnings: '完成 · 有待核查的问题',
+  no_evidence: '缺少可用证据',
+} as const
+
 export type ReviewTurn = {
   question: string
   referenceIds?: string[]
@@ -30,6 +36,7 @@ export type ReviewTurn = {
   sections: ReviewSection[]
   reply?: string
   reportUnchanged?: true
+  verification?: keyof typeof verificationLabels
 }
 
 export type ReviewRun = ReviewTurn & {
@@ -37,12 +44,14 @@ export type ReviewRun = ReviewTurn & {
   title: string
   history?: ReviewTurn[]
   source?: 'backend'
+  backendUrl?: string
+  runId?: string
   mockVerified?: true
   mockFlow?: 'direct'
 }
 
-export function lastTurn({ question, referenceIds, evidence, sections, reply, reportUnchanged }: ReviewRun): ReviewTurn {
-  return { question, referenceIds, evidence, sections, reply, reportUnchanged }
+export function lastTurn({ question, referenceIds, evidence, sections, reply, reportUnchanged, verification }: ReviewRun): ReviewTurn {
+  return { question, referenceIds, evidence, sections, reply, reportUnchanged, verification }
 }
 
 const tracing: Paper = {

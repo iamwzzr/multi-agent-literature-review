@@ -933,24 +933,55 @@ h1 {
   font-size: .84rem;
 }
 
-.review-error p {
+.review-error-summary {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
-  margin: 0;
+  gap: 8px;
   color: var(--danger-text);
+}
+
+.review-error[data-informational="true"] .review-error-summary {
+  color: var(--text);
+}
+
+.review-error-summary h2 {
+  margin: 0 0 3px;
+  font-size: .9rem;
+}
+
+.review-error p {
+  margin: 0;
+  color: var(--body-text);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
-.review-error svg {
+.review-error-summary > svg {
+  flex: none;
   margin-top: 2px;
 }
 
-.review-error > div {
+.review-error-details,
+.review-error-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.review-error-details,
+.review-error .review-error-note {
+  color: var(--muted);
+  font-size: .76rem;
+  overflow-wrap: anywhere;
+}
+
+.review-error-details > * + *::before {
+  content: '·';
+  margin-right: 6px;
+}
+
+.workflow-steps li[data-failed="true"] .step-icon {
+  color: var(--danger-text);
 }
 
 .response-status {
@@ -2163,9 +2194,67 @@ kbd {
 
 .project-form {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   padding: 16px;
   background: var(--card);
+}
+
+.project-fields {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.folder-current {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: .8rem;
+  color: var(--muted);
+}
+
+.folder-dialog .project-path-actions {
+  flex-wrap: nowrap;
+}
+
+.folder-dialog .project-path-actions button {
+  flex: 0 0 auto;
+}
+
+.folder-options {
+  list-style: none;
+  overflow-y: auto;
+  max-height: min(42vh, 360px);
+  margin: 0;
+  padding: 0;
+}
+
+.folder-options .sidebar-row span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-storage-error {
+  margin: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: .82rem;
+}
+
+.source-pdf-viewer {
+  display: block;
+  width: 100%;
+  min-height: min(400px, 45vh);
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 
 .project-form label {
@@ -2234,6 +2323,7 @@ kbd {
 
 .dialog-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 7px;
 }
@@ -2251,14 +2341,16 @@ kbd {
   background: var(--hover);
 }
 
-.dialog-actions button[type="submit"] {
+.dialog-actions button[type="submit"],
+.dialog-actions .folder-confirm {
   border-color: var(--button);
   color: var(--button-text);
   background: var(--button);
   font-weight: 620;
 }
 
-.dialog-actions button[type="submit"]:hover:not(:disabled) {
+.dialog-actions button[type="submit"]:hover:not(:disabled),
+.dialog-actions .folder-confirm:hover:not(:disabled) {
   background: var(--button-hover);
 }
 

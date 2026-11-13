@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowUpRight, Download, FileText, Printer, X } from 'lucide-react'
+import { verificationLabels } from './demo'
 import type { Evidence, ReviewRun, ReviewTurn } from './demo'
 import { citationParts } from './response'
 import './report-preview.css'
@@ -34,13 +35,13 @@ function referenceText({ paper, page }: Evidence) {
   return attribution + ' · ' + paper.title + ' · 第 ' + page + ' 页'
 }
 
-function ReportDocument({ review, turn, prefix, onCitation }: {
+function ReportDocument({ review, turn, prefix, references, onCitation }: {
   review: ReviewRun
   turn: ReviewTurn
   prefix: string
+  references: ReturnType<typeof reportReferences>
   onCitation?: (index: number, trigger: HTMLButtonElement) => void
 }) {
-  const references = reportReferences(turn)
   const question = review.history?.[0]?.question ?? review.question
   const titleId = prefix + '-document-title'
   const bibliographyId = prefix + '-bibliography-title'
@@ -50,6 +51,7 @@ function ReportDocument({ review, turn, prefix, onCitation }: {
         {review.source !== 'backend' && <p className="report-demo-label">示例综述</p>}
         <h1 id={titleId}>{review.title}</h1>
         {question !== review.title && <p className="report-document-question">研究问题 · {question}</p>}
+        {!onCitation && turn.verification && <p className="report-document-question">核验状态 · {verificationLabels[turn.verification]}</p>}
       </header>
       {turn.sections.map(({ id, heading, paragraphs }) => (
         <section className="report-document-section" key={id}>
@@ -114,6 +116,7 @@ export function ReportPanel({ review, turn, version, busy, drawer, hidden, onCit
 }) {
   const reader = useRef<HTMLDivElement>(null)
   const close = useRef<HTMLButtonElement>(null)
+  const references = useMemo(() => reportReferences(turn), [turn])
 
   useEffect(() => {
     if (reader.current) reader.current.scrollTop = 0
@@ -137,6 +140,7 @@ export function ReportPanel({ review, turn, version, busy, drawer, hidden, onCit
         <div>
           <h2 id="latest-report-heading">最新综述</h2>
           <p role="status">第 {version} 版{busy ? ' · 新版生成中' : ''}</p>
+          {turn.verification && <p className="report-verification">{verificationLabels[turn.verification]}</p>}
         </div>
         <div className="report-panel-actions">
           <button className="context-button" type="button" aria-haspopup="dialog" onClick={onPreview}>
@@ -148,7 +152,7 @@ export function ReportPanel({ review, turn, version, busy, drawer, hidden, onCit
         </div>
       </header>
       <div className="report-panel-reader" ref={reader}>
-        <ReportDocument review={review} turn={turn} prefix="latest-report" onCitation={onCitation} />
+        <ReportDocument review={review} turn={turn} prefix="latest-report" references={references} onCitation={onCitation} />
       </div>
     </aside>
   )
@@ -166,10 +170,10 @@ function fileTitle(title: string) {
 export function ReportPreview({ review, onClose }: { review: ReviewRun; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const reader = useRef<HTMLDivElement>(null)
-  const versions = reportVersions(review)
+  const versions = useMemo(() => reportVersions(review), [review])
   const [version, setVersion] = useState(versions.length - 1)
   const selected = versions[version].turn
-  const references = reportReferences(selected)
+  const references = useMemo(() => reportReferences(selected), [selected])
   const demo = review.source !== 'backend'
   const question = review.history?.[0]?.question ?? review.question
   const filename = fileTitle(review.title) + (versions.length > 1 ? ' - 第 ' + (version + 1) + ' 版' : '')
@@ -195,6 +199,7 @@ export function ReportPreview({ review, onClose }: { review: ReviewRun; onClose:
       '# ' + markdownText(review.title.replace(/\s+/g, ' ')),
       demo ? '> 示例综述' : '',
       question !== review.title ? '研究问题 · ' + markdownText(question) : '',
+      selected.verification ? '核验状态 · ' + verificationLabels[selected.verification] : '',
       ...sections,
       bibliography.length ? '## 参考文献\n\n' + bibliography.join('\n') : '',
     ].filter(Boolean).join('\n\n') + '\n'
@@ -234,7 +239,7 @@ export function ReportPreview({ review, onClose }: { review: ReviewRun; onClose:
         <button className="icon-button report-preview-close" type="button" aria-label="关闭综述预览" onClick={() => dialog.current?.close()}><X size={17} /></button>
       </header>
       <div className="report-preview-reader" ref={reader}>
-        <ReportDocument review={review} turn={selected} prefix="report" />
+        <ReportDocument review={review} turn={selected} prefix="report" references={references} />
       </div>
     </dialog>,
     document.body,
