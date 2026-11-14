@@ -24,3 +24,4 @@ dist/
 
 # Local acceptance records may contain paper excerpts
 data/manual-test-results/
+data/test-corpus/

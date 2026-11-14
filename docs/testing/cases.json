@@ -1,0 +1,68 @@
+{
+  "schema_version": 2,
+  "rubric_revision_note": "After G03 source rereading, strengthened query-formulation checks using PDF p5. Question and source corpus unchanged; this is a stricter rubric, not a rerun or a retroactive model pass.",
+  "page_convention": "PDF page sequence, starting at 1; not printed page labels",
+  "fixed_keys": ["rag", "selfrag", "flare"],
+  "cases": [
+    {
+      "id": "G01", "kind": "single", "keys": ["rag"],
+      "question": "仅根据 RAG 论文，解释 RAG-Sequence 与 RAG-Token 如何使用检索文档。最多两条主张，注明原文页码。",
+      "expected": ["两种形式均对检索文档这一隐变量做边缘化。", "Sequence 按整个输出序列处理文档；Token 可在不同输出 token 上使用不同文档。"],
+      "must_not": ["把逐 token 文档选择说成每个 token 都重新发起检索。"],
+      "evidence": [{"key":"rag", "page":3, "anchors":["RAG-Sequence Model", "RAG-Token Model"]}],
+      "retrieval_query": "RAG-Sequence RAG-Token latent document marginalize"
+    },
+    {
+      "id": "G02", "kind": "single", "keys": ["selfrag"],
+      "question": "仅根据 Self-RAG，说明它如何判断检索需要、检查生成内容，以及推理阶段是否依赖独立 critic。最多三条主张。",
+      "expected": ["通过 reflection tokens 表达检索需要及相关性、支持性和效用等评判。", "critic 用于训练数据构建；训练后的生成器在推理时可自行产生这些 token。"],
+      "must_not": ["将 Self-RAG 描述为部署时始终由三个独立 Agent 工作。", "声称它能保证消除幻觉。"],
+      "evidence": [{"key":"selfrag", "page":4, "anchors":["reflection tokens", "without relying on the critic"]}],
+      "retrieval_query": "Self-RAG inference reflection tokens critic training"
+    },
+    {
+      "id": "G03", "kind": "single", "keys": ["flare"],
+      "question": "仅根据 FLAREdirect，说明何时触发检索、查询如何形成，以及检索后如何处理下一句。最多两条主张。",
+      "expected": ["先生成临时下一句，出现低于阈值的 token 概率时触发检索。", "利用预期下一句形成查询，并基于检索结果重新生成下一句。", "完整解释查询构造时，应说明屏蔽低置信度词或针对其生成问题的两种方法（PDF 第5页）。"],
+      "must_not": ["声称所有 FLARE 变体都只采用同一种置信度机制。", "声称无需任何成本便必然提升所有任务效果。", "声称论文只提出错误查询风险而没有提供缓解方法。"],
+      "evidence": [{"key":"flare", "page":4, "anchors":["temporary next sentence", "threshold"]},{"key":"flare", "page":5, "anchors":["Masked sentences as implicit queries", "Generated questions as explicit queries"]}],
+      "retrieval_query": "FLARE direct confidence threshold temporary next sentence"
+    },
+    {
+      "id": "G04", "kind": "comparison", "keys": ["rag","selfrag","flare"],
+      "question": "比较 RAG、Self-RAG 和 FLAREdirect 的检索触发机制，各用一条有引用的主张，给一行比较；区分 RAG-Token 的文档选择与重新检索，不做效果排名。",
+      "expected": ["区分输入驱动的检索、反思 token 按需检索和生成中置信度触发检索。", "每篇的机制都应有独立证据。"],
+      "must_not": ["仅引用一篇论文证明全部三种机制。", "把不同实验结果直接排名。"],
+      "evidence": [{"key":"rag","page":3,"anchors":["RAG-Token Model"]},{"key":"selfrag","page":4,"anchors":["reflection tokens"]},{"key":"flare","page":4,"anchors":["threshold"]}],
+      "retrieval_query": "RAG-Token Self-RAG FLARE retrieval reflection confidence"
+    },
+    {
+      "id": "G05", "kind": "comparability", "keys": ["rag","selfrag","flare"],
+      "question": "这三篇论文能否证明 Self-RAG 在所有任务上都优于 RAG 和 FLARE？仅依据各自报告的模型与评测条件说明限制，最多三条主张。",
+      "expected": ["拒绝普遍优越性结论。", "区分 BART-large、Self-RAG 7B/13B 与 FLARE 所用模型及不同任务、数据集和指标；只能在匹配条件下比较。"],
+      "must_not": ["把不同任务或指标的数字直接作大小比较。"],
+      "evidence": [{"key":"rag","page":3,"anchors":["BART-large"]},{"key":"selfrag","page":1,"anchors":["7B and 13B"]},{"key":"flare","page":3,"anchors":["text-davinci-003"]}],
+      "retrieval_query": "BART-large 400M Self-RAG 7B 13B text-davinci-003 datasets"
+    },
+    {
+      "id": "G06", "kind": "insufficient", "keys": ["rag","selfrag","flare"],
+      "question": "这三篇论文是否给出完全相同硬件、模型、数据集下每次回答的人民币成本？找不到就说明证据不足，禁止估算、换算或补写。最多两条主张。",
+      "expected": ["不编造共同实验条件或人民币成本。", "如未检索到支持，应限定为所提供材料与已检查范围不足；不能声称全领域没有研究。"],
+      "must_not": ["虚构人民币金额。", "把未报告值写为 0。"], "evidence": []
+    },
+    {
+      "id": "G07", "kind": "irrelevant", "keys": ["rag","selfrag","flare"],
+      "question": "仅依据这三篇论文，给出铌钛超导线在指定磁场下的临界电流实验结果。找不到就返回资料不足，不调用外部知识。",
+      "expected": ["明确现有论文不能支持所请求实验结果。"],
+      "must_not": ["生成貌似有论文支持的超导实验结论。"], "evidence": []
+    }
+  ],
+  "retrieval_probes": [
+    {"id":"R01","query":"RAG-Sequence RAG-Token latent document marginalize","expected":[{"key":"rag","pages":[3]}]},
+    {"id":"R02","query":"Self-RAG inference reflection tokens critic training","expected":[{"key":"selfrag","pages":[4]}]},
+    {"id":"R03","query":"FLARE direct confidence threshold temporary next sentence","expected":[{"key":"flare","pages":[4]}]},
+    {"id":"R04","query":"RAG-Token Self-RAG FLARE retrieval reflection confidence","expected":[{"key":"rag","pages":[3]},{"key":"selfrag","pages":[4]},{"key":"flare","pages":[4]}]},
+    {"id":"R05","query":"这篇方法如何判断是否需要检索并检查生成内容","expected":[{"key":"selfrag","pages":[1,4]}]},
+    {"id":"R06","query":"生成下一句话时什么时候重新检索","expected":[{"key":"flare","pages":[2,4]}]}
+  ]
+}
