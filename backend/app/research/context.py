@@ -27,16 +27,30 @@ class EvidenceRegistry:
             return card
 
 
-def evidence_view(items):
+def condition_view(conditions):
+    """Expose useful extracted conditions without unbounded model-written metadata."""
+    result={}
+    for key,value in list(conditions.items())[:8]:
+        candidate={**result,key:value[:300] if isinstance(value,str) else value}
+        if len(json.dumps(candidate,ensure_ascii=False))>1200: break
+        result=candidate
+    return result
+
+
+def evidence_view(items,include_quote=True):
     return [{'evidence_id':e['evidence_id'],'document_id':e['document_id'],'paper_id':e['paper_id'],
-             'location':e['location'],'quote':e['quote'],'finding_preview':e['finding'][:240],
+             'location':e['location'],**({'quote':e['quote']} if include_quote else {'quote_available_via_query_evidence':True}),
+             'finding_preview':e['finding'][:240],
+             'conditions_preview':condition_view(e.get('conditions',{})),
+             'conditions_are_extracted_not_verified':True,
              'conditions_available_via_query_evidence':True} for e in items]
 
 
-def report_view(report):
+def report_view(report, issue_claim_ids=()):
     if not report: return None
     return {'report_id':report['report_id'],'report_version':report['report_version'],
             'claims':[{'claim_id':c['claim_id'],'kind':c['kind'],'text_preview':c['text'][:200],
+                       **({'text':c['text'],'needs_correction':True} if c['claim_id'] in issue_claim_ids else {}),
                        'evidence_ids':c['evidence_ids']} for c in report['claims']],
             'is_preview':True,'full_claims_available_via_read_report_claim':True}
 
@@ -98,6 +112,9 @@ def review_payloads(task,report,evidence,papers,originals,pending,max_chars):
                 for e in selected],
             'papers':paper_view(papers),'original_pages':original_windows(originals,selected),
             'comparison_context':comparison,
+            'extracted_condition_context':[{'evidence_id':e['evidence_id'],'paper_id':e['paper_id'],
+                 'conditions_preview':condition_view(e.get('conditions',{})),
+                 'must_check_against_original':True} for e in evidence],
             'comparison_context_is_preview':True,
             'more_comparison_context_available_via_read_report_claim':True,
             'previous_issues':[{'issue_id':i.get('issue_id'),'owner':i.get('owner'),

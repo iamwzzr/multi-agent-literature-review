@@ -212,7 +212,7 @@ class ThreeAgentWorkflow:
                     index=await asyncio.to_thread(SearchIndex,chunks);by_span={c['id']:c for c in chunks}
                     return {'status':'ok','data':{k:v for k,v in document.items() if k not in ('pages','path')},'error':None}
 
-                researcher_tools=[search_document,read_original,record_evidence,list_project_papers,get_paper_record,get_verification_log]
+                researcher_tools=[search_document,read_original,record_evidence,query_evidence,list_project_papers,get_paper_record,get_verification_log]
                 if request.source_mode!='local': researcher_tools.extend([search_verified_papers,fetch_paper_content])
                 pending, feedback = [], 0
                 need_research = True
@@ -241,6 +241,20 @@ class ThreeAgentWorkflow:
                             raise AppError('BUDGET_EXHAUSTED', '总页数预算耗尽。', 409)
                         yield phase('Researcher 提取原文证据', ['analysis', 'search'], summary='记录原文片段、实验条件和资料缺口。')
                         initial_passages=await asyncio.to_thread(index.search,request.question,6)
+                        condition_passages=[]
+                        if re.search(r'可比|条件|数据集|指标|comparab|conditions|datasets|metrics',request.question,re.I):
+                            seen={c['id'] for c in initial_passages}
+                            for document_id in list(documents)[:budget.documents]:
+                                for query in ('base model generator architecture parameters',
+                                              'datasets benchmarks evaluation metrics experimental setup'):
+                                    hits=await asyncio.to_thread(index.search,query,1,[document_id],content_region='body')
+                                    if not hits:
+                                        hits=await asyncio.to_thread(index.search,query,1,[document_id])
+                                    if hits and hits[0]['id'] not in seen and len(condition_passages)<6:
+                                        seen.add(hits[0]['id']);condition_passages.append(hits[0])
+                            meter.charge('tool','comparison_condition_retrieval')
+                            ws.save('condition_retrieval',{'queries_per_document':2,
+                                'span_ids':[c['id'] for c in condition_passages]})
                         initial_originals=[]
                         for doc_id,page in dict.fromkeys((c['document_id'],c['page']) for c in initial_passages):
                             meter.charge('tool','researcher_read_original')
@@ -250,8 +264,12 @@ class ThreeAgentWorkflow:
                         result = await self.agents.invoke('researcher', {'task': task, 'papers': paper_view(papers),
                             'documents': [{k: v for k,v in d.items() if k not in ('pages','path')} for d in documents.values()],
                             'initial_passages': initial_passages,
-                            'initial_context': original_windows(initial_originals,initial_cards),
-                            'issues': pending, 'existing_evidence': evidence_view(evidence)}, ResearchOutput,
+                            'condition_passages':condition_passages,
+                            # The same quotations are already in initial_passages;
+                            # retain their hashes and neighboring context without duplicating them.
+                            'initial_context': [{k:v for k,v in window.items() if k!='windows'}
+                                                for window in original_windows(initial_originals,initial_cards)],
+                            'issues': pending, 'existing_evidence': evidence_view(evidence,include_quote=False)}, ResearchOutput,
                             researcher_tools, meter)
                         ws.save('researcher_result', dict(result.model_dump(), task_id=task['task_id'],
                             paper_ids=[p['paper_id'] for p in papers], issue_responses=[dict(i,status='addressed') for i in pending]))
@@ -283,7 +301,7 @@ class ThreeAgentWorkflow:
                             'hash': content_hash(evidence)}, snapshot_id)
                     yield phase('Reporter 综合报告', ['writing'], ['search', 'analysis'])
                     written = await self.agents.invoke('reporter', {'task': task, 'papers': paper_view(papers),
-                        'evidence': evidence_view(evidence), 'previous_report': report_view(report), 'issues': pending,
+                        'evidence': evidence_view(evidence), 'previous_report': report_view(report,[i.get('claim_id') for i in pending]), 'issues': pending,
                         'research_gaps':research_gaps,
                         'history': history_view(request.history)},
                         report_contract(task), [query_evidence, read_original, get_paper_record, read_report_claim], meter)

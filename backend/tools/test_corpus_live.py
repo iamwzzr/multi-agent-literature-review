@@ -45,6 +45,9 @@ def main():
              'base_url':settings.model_base_url,'budget':{'model_calls_per_case':args.model_calls,'seconds_per_case':args.seconds},
              'model_max_tokens':settings.model_max_tokens,'reasoning_effort':settings.model_reasoning_effort,
              'git_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
+             'source_sha256':{str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest()
+                              for p in (ROOT/'backend/app').rglob('*.py')},
+             'working_tree_dirty':bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip()),
              'requirements_sha256':hashlib.sha256((ROOT/'backend/requirements.txt').read_bytes()).hexdigest(),
              'case_file_sha256':hashlib.sha256((ROOT/'docs/testing/cases.json').read_bytes()).hexdigest(),
              'corpus_sha256':{k:p['sha256'] for k,p in by_key.items()},'results':[]}

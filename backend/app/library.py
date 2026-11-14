@@ -239,7 +239,7 @@ class SearchIndex:
         average = sum(lengths) / max(1, len(lengths)) or 1
         self.norms = [1.2 * (.25 + .75 * length / average) for length in lengths]
 
-    def search(self, query: str, limit=6, document_ids=None, paper_ids=None):
+    def search(self, query: str, limit=6, document_ids=None, paper_ids=None, content_region=None):
         if limit <= 0:
             return []
         # Conservative, domain-level aliases; not machine translation. Unknown
@@ -263,6 +263,8 @@ class SearchIndex:
             maximum=max(frequencies.values(),default=1) or 1
             for i, count in matches:
                 chunk=self.chunks[i]
+                if content_region is not None and chunk.get('content_region','body')!=content_region:
+                    continue
                 if document_ids is not None and chunk.get('document_id') not in document_ids:
                     continue
                 if paper_ids is not None and chunk.get('paper_id',chunk['paper']['id']) not in paper_ids:

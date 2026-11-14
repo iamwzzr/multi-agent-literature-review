@@ -20,6 +20,39 @@ from test_business import setup, local_client, ScriptedModel, events
 from test_three_agent import Trio
 
 
+def test_conditions_and_contested_claims_are_visible_but_bounded():
+    from app.research.context import evidence_view,report_view
+    card={'evidence_id':'e','document_id':'d','paper_id':'p','location':{'page':1},
+          'quote':'original','finding':'finding','conditions':{'model':'Model-A','datasets':'SharedQA','notes':'x'*10000}}
+    view=evidence_view([card])[0]
+    assert view['conditions_preview']['model']=='Model-A'
+    assert len(json.dumps(view['conditions_preview']))<1300
+    assert len(card['conditions']['notes'])==10000
+    catalog=evidence_view([card],include_quote=False)[0]
+    assert 'quote' not in catalog and catalog['quote_available_via_query_evidence']
+    text='source-qualified statement '*80
+    draft={'report_id':'r','report_version':1,'claims':[{'claim_id':'c','kind':'finding','text':text,'evidence_ids':['e']}]}
+    assert 'text' not in report_view(draft)['claims'][0]
+    assert report_view(draft,['c'])['claims'][0]['text']==text
+
+
+def test_comparison_initialization_collects_condition_sources(setup):
+    from test_business import make_pdf
+    config,payload,papers=setup
+    make_pdf(papers/'conditions.pdf','The base model generator architecture uses ModelA. Datasets benchmarks evaluation metrics use SharedQA.')
+    payload['question']='比较模型与评测条件 retrieval coverage'
+    class Inspect(Trio):
+        async def invoke(self,role,payload,schema,tools,meter):
+            if role=='researcher':
+                assert any('ModelA' in c['text'] for c in payload['condition_passages']+payload['initial_passages'])
+            return await super().invoke(role,payload,schema,tools,meter)
+    with local_client(create_app(config,ScriptedModel(),research_agents=Inspect())) as client:
+        response=client.post('/api/v2/reviews/stream',json=payload)
+        assert events(response)[-1]['taskStatus']=='completed'
+        run=client.get('/api/v1/runs/'+response.headers['x-run-id']).json()
+        assert any(a['kind']=='condition_retrieval' for a in run['artifacts'])
+
+
 def test_comparison_search_diversifies_and_can_scope_documents():
     chunks=[{'id':str(i),'document_id':doc,'paper':{'id':doc,'title':'Methods'},
              'page':i+1,'text':text} for i,(doc,text) in enumerate([
@@ -30,6 +63,14 @@ def test_comparison_search_diversifies_and_can_scope_documents():
     assert {c['document_id'] for c in index.search('retrieval',6,['b'])}=={'b'}
     assert index.search('retrieval',6,[])==[]
     assert index.search('retrieval',0)==[]
+
+
+def test_condition_search_can_prefer_body_without_losing_appendix_access():
+    common={'paper':{'id':'p','title':'Study'},'document_id':'d'}
+    index=SearchIndex([{**common,'id':'a','page':1,'text':'Datasets evaluated include SharedQA.','content_region':'body'},
+                       {**common,'id':'b','page':2,'text':'Datasets evaluation datasets benchmarks tasks.','content_region':'back_matter'}])
+    assert [c['id'] for c in index.search('datasets evaluation',content_region='body')]==['a']
+    assert [c['id'] for c in index.search('datasets',content_region='back_matter')]==['b']
 
 
 def test_chinese_research_terms_retrieve_english_without_inventing_unrelated_matches():

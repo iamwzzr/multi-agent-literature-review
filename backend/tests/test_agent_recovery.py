@@ -39,3 +39,28 @@ def test_format_retry_removes_research_tools_and_still_validates(setup, monkeypa
     result = asyncio.run(ThreeAgents(config).invoke('researcher',{},ResearchOutput,[tool],meter))
     assert result.status == 'partial'
     assert calls[0]['tools'] == [tool] and calls[1]['tools'] == []
+
+
+def test_validation_retry_preserves_draft_and_identifies_error_without_research_tools(setup,monkeypatch):
+    from langchain.agents.structured_output import StructuredOutputValidationError
+    from langchain_core.messages import AIMessage
+    config,_,_=setup
+    monkeypatch.setattr('app.research.agents.ChatOpenAI',lambda **kwargs:object())
+    builds=[];inputs=[]
+    class Fake:
+        def __init__(self,first): self.first=first
+        async def ainvoke(self,value,**kwargs):
+            inputs.append(value)
+            if self.first:
+                message=AIMessage(content='',tool_calls=[{'name':'ResearchOutput',
+                    'args':{'status':'partial','evidence':[],'unexpected':'retained-draft'},'id':'bad'}])
+                raise StructuredOutputValidationError('ResearchOutput',ValueError('unexpected: extra fields not permitted'),message)
+            return {'structured_response':{'status':'partial','evidence':[]}}
+    def build(**kwargs):
+        builds.append(kwargs);return Fake(len(builds)==1)
+    monkeypatch.setattr('app.research.agents.create_agent',build)
+    meter=Meter(Budget(),Workspace(Store(config.runtime_dir),'repair','run'))
+    result=asyncio.run(ThreeAgents(config).invoke('researcher',{},ResearchOutput,[SimpleNamespace(name='search_document')],meter))
+    assert result.status=='partial' and builds[1]['tools']==[]
+    assert 'unexpected: extra fields not permitted' in inputs[1]['messages'][0]['content']
+    assert 'retained-draft' in inputs[1]['messages'][0]['content']

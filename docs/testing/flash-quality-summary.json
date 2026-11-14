@@ -1,0 +1,192 @@
+{
+  "compiled_at": "2026-11-14T17:46:30.110306+08:00",
+  "initial_pushed_commit": "325929a88d18272f8b2ed06232c980ae02de8494",
+  "configured_model": "deepseek-flash",
+  "unit_tests_passed": 93,
+  "fixed_corpus_and_cases_unchanged": true,
+  "source_sha256": {
+    "backend/app/store.py": "41350751abb2a6f629c4ea3bdd614f32d7b861e65a4b4aea19a2b4768846fd36",
+    "backend/app/config.py": "b368e7794b01a6f57417f9add3696cf8905973b8e8e40f83fbad5e323e72e512",
+    "backend/app/metadata.py": "199d0262b456c75a7d142ce8ba6af29387eb6a284f8f17ffcb788eadd71cb766",
+    "backend/app/library.py": "1a4aeabb0713a539383d7242d30b317e7eec663fd4ec27a24a13c2687ed0ea3e",
+    "backend/app/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "backend/app/model.py": "bbea00b5df707d1c81bc4131270ab370928d4c934deb1e716e3e6e776afcc1de",
+    "backend/app/pdf_worker.py": "f0298549228a295d89a8e9457a0b87670f1d6263fc93a9c5f685fd96f8a28034",
+    "backend/app/schemas.py": "dc36211a03e3dfcb6eb6bc01a10e890e4fb7267a40debdaf98c9eda66851c96b",
+    "backend/app/errors.py": "ed465e9e42da4a86348f3553e7983c48a672b34a180911984c4fb136dae1b47a",
+    "backend/app/workflow.py": "94e415e40b2d61c62a9a443ec99bdc4da5c57af3d7148016333ac91d8e1e0096",
+    "backend/app/main.py": "709df56ccc0f8b41e70956154019737db177e951343064c8ce1812fbadc8dfcc",
+    "backend/app/__main__.py": "304eda63a38216143b4610f80c8f57b8f0d33c4a0c2005b78d91e04b8b8d6c1c",
+    "backend/app/research/citations.py": "2f20760e2ba79366dfe3d633e3fb47a217bc3bc951a2809bb0f2c6d4710dc73b",
+    "backend/app/research/comparisons.py": "5afbcbf3a409ae2d12a3d01f469368025938380e7db533e47f5b909bb8662f92",
+    "backend/app/research/__init__.py": "2d4bc379b47eaa25158df43d01e48e0782ce2293d5056e823a3779cadf48830d",
+    "backend/app/research/agents.py": "9878b6c16e8dd0ebbd4ded329dd592a0590a12d7971b9e19be1c854f2c7a180a",
+    "backend/app/research/sources.py": "3d9672adf5271d7f76c4abf7000d90e983e370b4c48c17efc300456e5159f16d",
+    "backend/app/research/engine.py": "c2bd2c52fcb62e79f673cf46915d0d7d2462040bb3f54112cc9ed910bddc8e89",
+    "backend/app/research/context.py": "32cb2bd578b7a9c029f7d595cecba1cc80d14310cc12afa1320123a6308be347",
+    "backend/app/research/contracts.py": "b2f52fd630f6c9e01eb0c856ac2e6d14ec8a40d2792a203fd7cb80e33d48a7e4",
+    "backend/app/research/workspace.py": "f110a08991839c553be83e28a28661e98016e6ac5888ac853c9ada7145775375"
+  },
+  "interrupted_pro_run": "109c3b50-1307-44f8-80ee-92a42dcaff25",
+  "interrupted_run_reason": "User requested model switch; cancelled, not scored; audit retained locally.",
+  "flash_rounds": [
+    {
+      "record_folder": "data/manual-test-results/fixed-live-20261114T093241Z",
+      "model": "deepseek-flash",
+      "results": [
+        {
+          "case": "G05",
+          "semantic_review": "pending",
+          "expected": [
+            "拒绝普遍优越性结论。",
+            "区分 BART-large、Self-RAG 7B/13B 与 FLARE 所用模型及不同任务、数据集和指标；只能在匹配条件下比较。"
+          ],
+          "must_not": [
+            "把不同任务或指标的数字直接作大小比较。"
+          ],
+          "execution": "passed",
+          "run_id": "2c02f947-10a5-4582-9b0e-cee6ad716e35",
+          "task_status": "partial",
+          "verification": "with_warnings",
+          "verdict": "undetermined",
+          "evidence_checked": 9,
+          "usage": {
+            "model_calls": 15,
+            "tool_calls": 46,
+            "tokens": 282264
+          },
+          "seconds": 55.5
+        }
+      ]
+    },
+    {
+      "record_folder": "data/manual-test-results/fixed-live-20261114T093610Z",
+      "model": "deepseek-flash",
+      "results": [
+        {
+          "case": "G04",
+          "semantic_review": "pending",
+          "expected": [
+            "区分输入驱动的检索、反思 token 按需检索和生成中置信度触发检索。",
+            "每篇的机制都应有独立证据。"
+          ],
+          "must_not": [
+            "仅引用一篇论文证明全部三种机制。",
+            "把不同实验结果直接排名。"
+          ],
+          "execution": "failed",
+          "run_id": "6d132410-3069-4846-9d96-0de862b68ed9",
+          "error_type": "AssertionError",
+          "backend_error_code": "AGENT_SCHEMA_INVALID",
+          "seconds": 36.7
+        },
+        {
+          "case": "G05",
+          "semantic_review": "pending",
+          "expected": [
+            "拒绝普遍优越性结论。",
+            "区分 BART-large、Self-RAG 7B/13B 与 FLARE 所用模型及不同任务、数据集和指标；只能在匹配条件下比较。"
+          ],
+          "must_not": [
+            "把不同任务或指标的数字直接作大小比较。"
+          ],
+          "execution": "failed",
+          "run_id": "2f8eef4e-5cfe-4aa6-9585-e1b28f2be487",
+          "error_type": "AssertionError",
+          "backend_error_code": "CONTEXT_TOO_LARGE",
+          "seconds": 32.81
+        }
+      ]
+    },
+    {
+      "record_folder": "data/manual-test-results/fixed-live-20261114T093950Z",
+      "model": "deepseek-flash",
+      "results": [
+        {
+          "case": "G04",
+          "semantic_review": "pending",
+          "expected": [
+            "区分输入驱动的检索、反思 token 按需检索和生成中置信度触发检索。",
+            "每篇的机制都应有独立证据。"
+          ],
+          "must_not": [
+            "仅引用一篇论文证明全部三种机制。",
+            "把不同实验结果直接排名。"
+          ],
+          "execution": "passed",
+          "run_id": "cf9c877a-106d-4035-8f05-b24b7863aff7",
+          "task_status": "partial",
+          "verification": "with_warnings",
+          "verdict": "undetermined",
+          "evidence_checked": 11,
+          "usage": {
+            "model_calls": 17,
+            "tool_calls": 44,
+            "tokens": 272543
+          },
+          "seconds": 75.42,
+          "review_issues": [
+            {
+              "claim_id": "claim-b11c92cf8e034e5cb203785d347ba64c",
+              "owner": "reporter",
+              "severity": "blocking",
+              "category": "scope",
+              "issue_id": "issue-bdd9c05a1d9c451fb91f7f02e5743d55"
+            }
+          ],
+          "max_context_characters": 56410,
+          "pending_gap_count": 6
+        },
+        {
+          "case": "G05",
+          "semantic_review": "pending",
+          "expected": [
+            "拒绝普遍优越性结论。",
+            "区分 BART-large、Self-RAG 7B/13B 与 FLARE 所用模型及不同任务、数据集和指标；只能在匹配条件下比较。"
+          ],
+          "must_not": [
+            "把不同任务或指标的数字直接作大小比较。"
+          ],
+          "execution": "passed",
+          "run_id": "326ffd7e-2bf9-4d13-84cf-b5b5a666d968",
+          "task_status": "partial",
+          "verification": "with_warnings",
+          "verdict": "undetermined",
+          "evidence_checked": 9,
+          "usage": {
+            "model_calls": 19,
+            "tool_calls": 51,
+            "tokens": 422350
+          },
+          "seconds": 100.84,
+          "review_issues": [
+            {
+              "claim_id": "claim-ff33536af97a4bb2a172c661b124aba2",
+              "owner": "reporter",
+              "severity": "blocking",
+              "category": "factual",
+              "issue_id": "issue-4323b5670ad043088150a819fa094b12"
+            },
+            {
+              "claim_id": "claim-c43f0aae55b74b56ba214efc9a2d3090",
+              "owner": "reporter",
+              "severity": "blocking",
+              "category": "scope",
+              "issue_id": "issue-340577b944144084abdce70b924d5183"
+            },
+            {
+              "claim_id": "claim-c90031fc8b004e1991ef1dcd3b98ce97",
+              "owner": "reporter",
+              "severity": "blocking",
+              "category": "comparison",
+              "issue_id": "issue-6c33070e7ca3475f970520de96334b0d"
+            }
+          ],
+          "max_context_characters": 50900,
+          "pending_gap_count": 10
+        }
+      ]
+    }
+  ],
+  "semantic_acceptance": "not_passed"
+}
