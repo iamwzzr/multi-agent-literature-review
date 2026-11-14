@@ -50,7 +50,9 @@ PROMPTS['reporter'] += (' Preserve source dataset labels when their full names a
 PROMPTS['reviewer'] += (' A source label or abbreviation used unchanged in the answer does not require expansion '
     'unless the user requested the full name. Do not block a report merely for retaining such a literal label. '
     'An asserted expansion still needs original support. Blocking issues must identify a material factual, '
-    'citation, scope or comparison error, not an optional naming preference.')
+    'citation, scope or comparison error, not an optional naming preference. '
+    'Classify issues as factual/citation/scope/comparison/style; only style can be a warning. '
+    'Unsupported factual statements cannot accompany a delivery pass merely by being labelled warning.')
 
 
 class UsageCallback(AsyncCallbackHandler):

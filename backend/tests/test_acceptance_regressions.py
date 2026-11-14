@@ -205,6 +205,14 @@ def test_unrequested_performance_scores_are_not_added_to_mechanism_comparisons()
     assert not overlap_issues(report,[],{'question':'比较相同数据集上的具体数值得分'})
 
 
+@pytest.mark.parametrize('category,expected',[('factual','blocking'),('citation','blocking'),('style','warning')])
+def test_factual_warnings_cannot_bypass_delivery_gate(category,expected):
+    from app.research.contracts import IssueDraft
+    issue=IssueDraft(claim_id='c',owner='reporter',severity='warning',category=category,
+                     problem='Unsupported assertion' if category!='style' else 'Optional formatting',required_fix='Review')
+    assert issue.severity==expected
+
+
 def test_hash_bound_bibliography_refreshes_without_upgrading_identity(setup):
     config,payload,papers=setup
     pdf=papers/'study.pdf';digest=hashlib.sha256(pdf.read_bytes()).hexdigest()

@@ -1,5 +1,5 @@
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
 import re
 
 
@@ -76,8 +76,17 @@ class IssueDraft(Contract):
     evidence_ids: list[str] = Field(default_factory=list)
     owner: Literal['researcher', 'reporter']
     severity: Literal['blocking', 'warning']
+    category: Literal['factual','citation','scope','comparison','style'] = 'factual'
     problem: str
     required_fix: str
+
+    @model_validator(mode='after')
+    def factual_issues_block_delivery(self):
+        # A pass accompanied by unsupported factual claims is not a safe pass.
+        # Only presentation/naming preferences may remain non-blocking warnings.
+        if self.category != 'style' and self.severity == 'warning':
+            self.severity='blocking'
+        return self
 
 
 class ReviewOutput(Contract):
