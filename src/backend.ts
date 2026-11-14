@@ -18,10 +18,16 @@ export const maxKnowledgePaths = 20
 
 export type BackendSettings = { url: string; useDemo: boolean; token?: string }
 type EvidenceItem = Omit<Evidence, 'source' | 'pdfUrl'>
-type ReviewOutput = Pick<ReviewTurn, 'sections' | 'evidence' | 'reply' | 'reportUnchanged' | 'verification'>
-type ContextTurn = Omit<ReviewOutput, 'evidence' | 'verification'> & { question: string; evidence: EvidenceItem[] }
+type ReviewOutput = Pick<ReviewTurn, 'sections' | 'evidence' | 'reply' | 'reportUnchanged' | 'verification' | 'taskStatus' | 'audit'>
+type ContextTurn = Omit<ReviewOutput, 'evidence' | 'verification' | 'taskStatus' | 'audit'> & { question: string; evidence: EvidenceItem[] }
 type ProjectRequest = { id: string; name: string; workingDirectory: string; knowledgePaths: string[] }
 type ReviewRequest = {
+  architecture: string
+  source_mode: string
+  allow_local_metadata_lookup: boolean
+  uploaded_file_ids: string[]
+  online_query?: string
+  research_budget: Record<string, number>
   conversationId: string
   project: ProjectRequest
   question: string
@@ -120,9 +126,15 @@ export function reviewRequest(project: Project, review: ReviewRun): ReviewReques
   if (references.length > maxReferences || project.knowledgePaths.length > maxKnowledgePaths) {
     throw new Error(`每轮最多引用 ${maxReferences} 个对话，每个项目最多配置 ${maxKnowledgePaths} 个知识库路径。`)
   }
+  const sources = readSources(project.id, review.backendUrl)
   return {
+    architecture: 'three_agent', source_mode: sources.mode,
+    allow_local_metadata_lookup: false,
+    uploaded_file_ids: sources.mode === 'online' ? [] : sources.files.map(f => f.id),
+    online_query: sources.query || undefined,
+    research_budget: { documents: 10, feedback_batches: 1, model_calls: 60, tool_calls: 150, seconds: 600 },
     conversationId: review.id,
-    project: projectRequest(project.id, project),
+    project: { ...projectRequest(project.id, project), knowledgePaths: sources.mode === 'online' ? [] : project.knowledgePaths },
     question: review.question,
     history: history.map((turn, index) => toContext(turn, index === history.length - 1)),
     references: references.map((reference) => ({
@@ -193,7 +205,7 @@ async function backendFetch({ url, token }: BackendSettings, endpoint: string, i
     }
   }
   try {
-    response = await fetch(url + apiPrefix + endpoint, {
+    response = await fetch(url + ((endpoint.endsWith('/uploads') || endpoint === '/reviews/stream') ? '/api/v2' : apiPrefix) + endpoint, {
       ...init,
       headers,
       cache: 'no-store',
@@ -314,6 +326,8 @@ export async function getBackendRun(backend: BackendSettings, runId: string, pro
         section.paragraphs.every((paragraph) => typeof paragraph === 'string')
       )) || !validReport(report.sections, report.evidence.length)) throw invalidStream()
   const output: ReviewOutput = {
+    taskStatus: typeof report.task_status === 'string' ? report.task_status : undefined,
+    audit: report,
     sections: report.sections, evidence: report.evidence.map((item) => reportEvidence(item, backend.url, projectId)),
     reply: typeof report.reply === 'string' ? report.reply : undefined,
     reportUnchanged: report.reportUnchanged === true ? true : undefined,
@@ -342,6 +356,9 @@ export async function streamBackendReview(
   onRun: (id: string) => void,
   previousReport?: ReviewTurn,
 ): Promise<ReviewOutput> {
+  let awaitRunId = ''
+  const originalOnRun = onRun
+  onRun = (id) => { awaitRunId = id; originalOnRun(id) }
   const body = JSON.stringify(request)
   if (new TextEncoder().encode(body).length > maxRequestBytes) {
     throw new BackendRequestError('请减少引用的对话，或缩小本轮研究范围。', 413, { code: 'REQUEST_TOO_LARGE' })
@@ -352,6 +369,7 @@ export async function streamBackendReview(
   let reply: string | undefined
   let reportUnchanged: true | undefined
   let verification: ReviewTurn['verification']
+  let taskStatus: string | undefined
   let completed = false
   let frame: number | undefined
 
@@ -401,6 +419,8 @@ export async function streamBackendReview(
         break
       }
       case 'done': {
+        if (typeof event.runId === 'string') onRun(event.runId)
+        taskStatus = typeof event.taskStatus === 'string' ? event.taskStatus : undefined
         if (event.verification !== undefined && !isVerification(event.verification)) throw invalidStream()
         verification = event.verification as ReviewTurn['verification']
         if (event.reportUnchanged === true) {
@@ -473,7 +493,8 @@ export async function streamBackendReview(
       }
     }
     if (!completed) throw new BackendRequestError('后端在综述完成前结束了连接，可以检查任务结果或重试。', 0, { code: 'STREAM_DISCONNECTED' })
-    return { sections, evidence, reply, reportUnchanged, verification }
+    const recovered = awaitRunId ? await getBackendRun(backend, awaitRunId, request.project.id, request.conversationId, signal).catch(() => null) : null
+    return { sections, evidence, reply, reportUnchanged, verification, taskStatus, ...(recovered?.status === 'completed' ? recovered.output : {}) }
   } catch (failure) {
     if (idle.signal.aborted && !signal.aborted) {
       throw new BackendRequestError('后端暂未发送进度，请检查服务或代理的流式连接。', 0, { code: 'STREAM_TIMEOUT' })
@@ -487,4 +508,24 @@ export async function streamBackendReview(
       reader.releaseLock()
     }
   }
+}
+
+export type Sources = { mode: 'local' | 'online' | 'hybrid'; query: string; files: {id: string; name: string}[] }
+function sourcesKey(id: string, url?: string) { return 'folio.sources.' + id + (url ? '.' + encodeURIComponent(url) : '') }
+export function readSources(id: string, url?: string): Sources {
+  const fallback: Sources = {mode:'local',query:'',files:[]}
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(sourcesKey(id,url)) ?? 'null')
+    if (!isRecord(value)) return fallback
+    return { mode: value.mode === 'online' || value.mode === 'hybrid' ? value.mode : 'local',
+      query: typeof value.query === 'string' ? value.query.slice(0,1000) : '',
+      files: Array.isArray(value.files) ? value.files.filter((f): f is Sources['files'][number] => isRecord(f) && isText(f.id) && isText(f.name)).slice(0,20) : [] }
+  } catch { return fallback }
+}
+export function saveSources(id: string, value: Sources, url?: string) { localStorage.setItem(sourcesKey(id,url), JSON.stringify(value)) }
+export async function uploadPdf(backend: BackendSettings, projectId: string, file: File) {
+  const response = await backendFetch({...backend, url: backend.url}, '/projects/' + encodeURIComponent(projectId) + '/uploads', {method:'POST', headers:{'Content-Type':'application/pdf'}, body:file, signal:AbortSignal.timeout(60000)})
+  const data = await response.json()
+  if (!isText(data.file_id)) throw new Error('上传未返回文件 ID')
+  return data.file_id as string
 }
