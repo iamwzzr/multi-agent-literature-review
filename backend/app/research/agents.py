@@ -42,6 +42,8 @@ PROMPTS['researcher'] += (' Search English papers with English terms, and cover 
     'For actual failures use outcome=execution_error and describe errors. Finalize after targeted searches; do not repeatedly ask for the same material.')
 PROMPTS['reporter'] += (' All factual limitations, including negative statements about what a paper does not report, '
     'are audited as claims. Do not assert absence from a clipped passage. Use neighboring pages and scope uncertainty. '
+    'Each retained limitations string must include its own supporting [evidence-ID] citations; '
+    'the program never assigns all evidence to an uncited limitation. Omit unnecessary commentary about your answer format. '
     'Explain query construction from the complete relevant method, not just a section introduction. '
     'Observe the requested number of comparison rows. Never add facts merely to fill a limitations section. '
     'Different base models do not imply disjoint datasets: explicitly intersect the named task/dataset lists. '

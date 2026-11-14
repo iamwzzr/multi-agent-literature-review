@@ -364,7 +364,7 @@ class ThreeAgentWorkflow:
                         cited=re.findall(r'\bevidence-[A-Za-z0-9_-]+\b',text)
                         report['claims'].append({'claim_id':identifier('claim'),'kind':'synthesis',
                             'presentation':'limitation','text':text,
-                            'evidence_ids':list(dict.fromkeys(cited)) or list(allowed_ids),
+                            'evidence_ids':list(dict.fromkeys(cited)),
                             'scope':'Check the factual support and the stated scope of this limitation.'})
                     ws.save('report_draft', report, report['report_id'])
                     yield phase('Reviewer 回读原文审核', ['verification'], ['search', 'analysis', 'writing'])
@@ -390,6 +390,13 @@ class ThreeAgentWorkflow:
                         request_assessments=[a for r in results for a in r.request_assessments],
                         issues=[i for r in results for i in r.issues])
                     conflicts=overlap_issues(report,evidence,task)
+                    for claim in report['claims']:
+                        if claim.get('presentation')=='limitation' and not claim['evidence_ids']:
+                            conflicts.append({'claim_id':claim['claim_id'],'evidence_ids':[],
+                                'owner':'reporter','severity':'blocking','category':'citation',
+                                'problem':'限制说明没有明确的原文证据引用；程序不会自动把全部证据分配给它。',
+                                'required_fix':'若保留这条事实限制，请在 limitations 字符串中写出支持它的 [evidence-ID]；'
+                                    '删除不必要的自述或无证据断言，不要添加无关引用。'})
                     if conflicts:
                         checked.issues.extend(IssueDraft(**i) for i in conflicts)
                         checked.verdict='revise'

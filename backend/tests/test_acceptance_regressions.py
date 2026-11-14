@@ -236,6 +236,28 @@ def test_limitations_are_audited_and_cannot_pass_when_unchecked(setup):
         assert any(c.get('presentation')=='limitation' for c in report['claims'])
 
 
+@pytest.mark.parametrize('cited',[False,True])
+def test_limitations_never_inherit_arbitrary_citations_even_when_reviewer_passes(setup,cited):
+    config,payload,_=setup
+    payload['research_budget']={'feedback_batches':0}
+    class Limited(Trio):
+        async def invoke(self,role,payload,schema,tools,meter):
+            result=await super().invoke(role,payload,schema,tools,meter)
+            if role=='reporter':
+                suffix=f" [{payload['evidence'][0]['evidence_id']}]" if cited else ''
+                result.limitations=['Limited to this experiment.'+suffix]
+            return result
+    with local_client(create_app(config,ScriptedModel(),research_agents=Limited())) as client:
+        response=client.post('/api/v2/reviews/stream',json=payload)
+        assert events(response)[-1]['taskStatus']==('completed' if cited else 'partial')
+        report=client.get('/api/v1/runs/'+response.headers['x-run-id']).json()['report']
+        limitation=next(c for c in report['claims'] if c.get('presentation')=='limitation')
+        assert bool(limitation['evidence_ids']) is cited
+        if not cited:
+            assert any(i['claim_id']==limitation['claim_id'] and i['category']=='citation'
+                       and i['severity']=='blocking' for i in report['review']['issues'])
+
+
 @pytest.mark.parametrize('outcome,errors,expected',[
     (None,[],'blocked'),('insufficient_evidence',[],'blocked'),
     ('execution_error',[],'AGENT_FAILED'),(None,['TOOL_ERROR'],'AGENT_FAILED')])
