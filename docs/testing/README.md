@@ -33,11 +33,16 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r backend/requirements.txt
 .venv/bin/python -m pip check
 .venv/bin/python backend/tools/prepare_test_corpus.py --download
+.venv/bin/python backend/tools/prepare_test_corpus.py --write-metadata
 .venv/bin/python -m pytest backend/tests -q --junitxml=data/manual-test-results/pytest.xml
 .venv/bin/python backend/tools/test_corpus_offline.py
 ```
 
 `prepare_test_corpus.py` 依赖系统 curl。它从固定版本 arXiv 页面取元数据，并下载对应 PDF；现有 PDF 不覆盖。SHA-256 与文件一致不等于全文语义正确。
+
+`--write-metadata` 根据已取得的清单生成与 PDF SHA-256 绑定的 `.metadata.json`。后端只在哈希一致时使用其中题名、作者和年份；仍标为用户提供题录，不能因此获得外部身份 verified。题录修改会使索引刷新。上传单个 PDF 不会自动携带该 sidecar，缺少信息时继续保留未知。
+
+2026-11-14 的修复后行为及分轮复测见 [FIX_REPORT.md](FIX_REPORT.md)。原始 [TEST_REPORT.md](TEST_REPORT.md) 保留为修复前基线。中文查询目前采用有限的研究术语对照与英文查询提示，不是通用翻译或多语言向量检索；比较检索采用文献多样性和可选文档范围。
 
 `test_corpus_offline.py` 使用真正的后端子进程解析器、BM25 索引和 HTTP 路由，检查 PDF 与元数据对应、证据页、引用编号、原始 PDF、上传隔离、空库、无文字 PDF、预算和定向返工。HTTP 流程中的模型角色是明确标记的替身，不对真实模型能力评分。结果保存在 `data/manual-test-results/corpus-offline/results.json`。
 

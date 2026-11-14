@@ -1,5 +1,7 @@
 # 测试报告（2026-11-14）
 
+> 这是修复前的历史基线。后续修复与复测见 [FIX_REPORT.md](FIX_REPORT.md)。早期离线行为另外从检查点 `6e1bece` 重新执行，记录在 `data/manual-test-results/baseline-replay-6e1bece/`；该记录是离线重现，不冒充首次运行日志。`corpus-offline/results.json` 是后续重跑会更新的工作结果。
+
 **结论：论文库与固定测试流程已建立并执行；后端尚未通过完整真实任务验收。** 七道真实题中两道满足后端 completed/passed 门禁，两道 partial，两道 blocked，一道 AGENT_FAILED。不得将六道正常结束的流说成六道质量通过。
 
 ## 基线与范围

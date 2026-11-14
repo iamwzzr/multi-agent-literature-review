@@ -1,0 +1,468 @@
+{
+  "compiled_at": "2026-11-14T16:42:01.770682+08:00",
+  "baseline_commit": "6e1bece",
+  "current_commit": "d8b84edddefc77dd6843dd7321c8173573deab57",
+  "source_sha256": {
+    "backend/app/store.py": "41350751abb2a6f629c4ea3bdd614f32d7b861e65a4b4aea19a2b4768846fd36",
+    "backend/app/config.py": "b368e7794b01a6f57417f9add3696cf8905973b8e8e40f83fbad5e323e72e512",
+    "backend/app/metadata.py": "199d0262b456c75a7d142ce8ba6af29387eb6a284f8f17ffcb788eadd71cb766",
+    "backend/app/library.py": "873a7b69ceaa78ed2a270e931ee14d2bae8460257ac2f6ddb6f57b8c30eb6257",
+    "backend/app/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "backend/app/model.py": "bbea00b5df707d1c81bc4131270ab370928d4c934deb1e716e3e6e776afcc1de",
+    "backend/app/pdf_worker.py": "f0298549228a295d89a8e9457a0b87670f1d6263fc93a9c5f685fd96f8a28034",
+    "backend/app/schemas.py": "dc36211a03e3dfcb6eb6bc01a10e890e4fb7267a40debdaf98c9eda66851c96b",
+    "backend/app/errors.py": "ed465e9e42da4a86348f3553e7983c48a672b34a180911984c4fb136dae1b47a",
+    "backend/app/workflow.py": "94e415e40b2d61c62a9a443ec99bdc4da5c57af3d7148016333ac91d8e1e0096",
+    "backend/app/main.py": "709df56ccc0f8b41e70956154019737db177e951343064c8ce1812fbadc8dfcc",
+    "backend/app/__main__.py": "304eda63a38216143b4610f80c8f57b8f0d33c4a0c2005b78d91e04b8b8d6c1c",
+    "backend/app/research/citations.py": "2f20760e2ba79366dfe3d633e3fb47a217bc3bc951a2809bb0f2c6d4710dc73b",
+    "backend/app/research/comparisons.py": "5afbcbf3a409ae2d12a3d01f469368025938380e7db533e47f5b909bb8662f92",
+    "backend/app/research/__init__.py": "2d4bc379b47eaa25158df43d01e48e0782ce2293d5056e823a3779cadf48830d",
+    "backend/app/research/agents.py": "b7e614058d7c3882aa795bb9586a3b885354974d97e5b80cb7550149fe0e08ef",
+    "backend/app/research/sources.py": "3d9672adf5271d7f76c4abf7000d90e983e370b4c48c17efc300456e5159f16d",
+    "backend/app/research/engine.py": "d9af89dd095594588f7722656698625876ea5c5f3952f461ec39d07b2bd603fe",
+    "backend/app/research/context.py": "5a69e89e7a995b1773d2175ceac2d4140406f265d0806f9e853b964486c2f548",
+    "backend/app/research/contracts.py": "b2f52fd630f6c9e01eb0c856ac2e6d14ec8a40d2792a203fd7cb80e33d48a7e4",
+    "backend/app/research/workspace.py": "f110a08991839c553be83e28a28661e98016e6ac5888ac853c9ada7145775375"
+  },
+  "test_results": {
+    "unit": 89,
+    "unit_failed": 0,
+    "offline_http": 18,
+    "gold_anchors": 10,
+    "strict_retrieval_before": 3,
+    "strict_retrieval_after": 4,
+    "retrieval_total": 6
+  },
+  "latest_selected_results": [
+    {
+      "case": "G01",
+      "semantic_review": "codex_independent_reread",
+      "execution": "passed",
+      "run_id": "0646326d-7309-460e-ba1d-2646c5b78066",
+      "task_status": "completed",
+      "verification": "passed",
+      "verdict": "pass",
+      "evidence_checked": 2,
+      "usage": {
+        "model_calls": 7,
+        "tool_calls": 15,
+        "tokens": 51299
+      },
+      "seconds": 24.48,
+      "round": "20261114T080828Z",
+      "raw_record": "data/manual-test-results/fixed-live-20261114T080828Z/G01.json",
+      "notes": "两种边缘化机制正确，引用 PDF 第3页；没有逐 token 重新发起检索的错误。",
+      "comparison_rows": 0
+    },
+    {
+      "case": "G02",
+      "semantic_review": "codex_independent_reread",
+      "execution": "passed",
+      "run_id": "a2080ec2-6bb1-4137-a47f-147be0a219ef",
+      "task_status": "completed",
+      "verification": "passed",
+      "verdict": "pass",
+      "evidence_checked": 3,
+      "usage": {
+        "model_calls": 8,
+        "tool_calls": 19,
+        "tokens": 75584
+      },
+      "seconds": 29.95,
+      "round": "20261114T080828Z",
+      "raw_record": "data/manual-test-results/fixed-live-20261114T080828Z/G02.json",
+      "notes": "区分检索/批判 token 与训练/推理阶段，无需独立推理 critic；已回读支持段落。",
+      "comparison_rows": 0
+    },
+    {
+      "case": "G03",
+      "semantic_review": "codex_independent_reread",
+      "execution": "passed",
+      "run_id": "e9248aa1-2dcc-4c76-9be7-bbb2150eb4bb",
+      "task_status": "completed",
+      "verification": "passed",
+      "verdict": "pass",
+      "evidence_checked": 2,
+      "usage": {
+        "model_calls": 8,
+        "tool_calls": 19,
+        "tokens": 74751
+      },
+      "seconds": 28.59,
+      "round": "20261114T080828Z",
+      "raw_record": "data/manual-test-results/fixed-live-20261114T080828Z/G03.json",
+      "notes": "引用 PDF 第4、5页，包含屏蔽低置信词与生成问题，消除了原先的跨页误读。",
+      "comparison_rows": 0
+    },
+    {
+      "case": "G04",
+      "semantic_review": "codex_independent_reread",
+      "execution": "passed",
+      "run_id": "2eca4265-7614-46f4-8e7d-b567bb986144",
+      "task_status": "completed",
+      "verification": "passed",
+      "verdict": "pass",
+      "evidence_checked": 3,
+      "usage": {
+        "model_calls": 8,
+        "tool_calls": 26,
+        "tokens": 108690
+      },
+      "seconds": 39.5,
+      "round": "20261114T082641Z",
+      "raw_record": "data/manual-test-results/fixed-live-20261114T082641Z/G04.json",
+      "notes": "三篇各有直接证据；只输出一行比较，区分 RAG-Token 文档边缘化与重新检索。",
+      "comparison_rows": 1
+    },
+    {
+      "case": "G05",
+      "semantic_review": "needs_revision",
+      "execution": "passed",
+      "run_id": "9e46b2d9-1ec3-40f1-906f-a6b8735f6b1c",
+      "task_status": "completed",
+      "verification": "passed",
+      "verdict": "pass",
+      "evidence_checked": 4,
+      "usage": {
+        "model_calls": 15,
+        "tool_calls": 49,
+        "tokens": 251576
+      },
+      "seconds": 92.04,
+      "round": "20261114T083620Z",
+      "raw_record": "data/manual-test-results/fixed-live-20261114T083620Z/G05.json",
+      "notes": "最新真实运行虽模型pass，但留下两条事实支持警告（FLARE模型名的引用覆盖、RAG基线范围的“仅”限定）。不计为质量通过；最终代码将事实警告升级blocking，离线重验证已拒绝这份原报告，原始运行不改写。",
+      "comparison_rows": 0,
+      "post_hardening_delivery_allowed": false,
+      "post_hardening_check": "offline_revalidation_not_a_new_model_run"
+    },
+    {
+      "case": "G06",
+      "semantic_review": "codex_independent_reread",
+      "execution": "passed",
+      "run_id": "03ac956c-9f99-4a39-a78e-8f30d44e19e6",
+      "task_status": "blocked",
+      "verification": "no_evidence",
+      "verdict": null,
+      "evidence_checked": 0,
+      "usage": {
+        "model_calls": 5,
+        "tool_calls": 19,
+        "tokens": 147151
+      },
+      "seconds": 24.98,
+      "round": "20261114T082641Z",
+      "raw_record": "data/manual-test-results/fixed-live-20261114T082641Z/G06.json",
+      "notes": "blocked/no_evidence 是预期的资料不足结果，不是预算停止；不显示未经审核的整篇否定，不编造人民币成本。",
+      "comparison_rows": 0
+    },
+    {
+      "case": "G07",
+      "semantic_review": "codex_independent_reread",
+      "execution": "passed",
+      "run_id": "c0c1a51a-97ca-4f83-8b36-a14b37f0fff4",
+      "task_status": "blocked",
+      "verification": "no_evidence",
+      "verdict": null,
+      "evidence_checked": 0,
+      "usage": {
+        "model_calls": 5,
+        "tool_calls": 12,
+        "tokens": 77925
+      },
+      "seconds": 16.23,
+      "round": "20261114T082641Z",
+      "raw_record": "data/manual-test-results/fixed-live-20261114T082641Z/G07.json",
+      "notes": "blocked/no_evidence 是预期的材料不相关结果，不再 AGENT_FAILED，不编造物理实验数据。",
+      "comparison_rows": 0
+    }
+  ],
+  "all_fix_round_results": [
+    {
+      "case": "G01",
+      "semantic_review": "pending",
+      "execution": "passed",
+      "run_id": "0646326d-7309-460e-ba1d-2646c5b78066",
+      "task_status": "completed",
+      "verification": "passed",
+      "verdict": "pass",
+      "evidence_checked": 2,
+      "usage": {
+        "model_calls": 7,
+        "tool_calls": 15,
+        "tokens": 51299
+      },
+      "seconds": 24.48,
+      "round": "20261114T080828Z"
+    },
+    {
+      "case": "G02",
+      "semantic_review": "pending",
+      "execution": "passed",
+      "run_id": "a2080ec2-6bb1-4137-a47f-147be0a219ef",
+      "task_status": "completed",
+      "verification": "passed",
+      "verdict": "pass",
+      "evidence_checked": 3,
+      "usage": {
+        "model_calls": 8,
+        "tool_calls": 19,
+        "tokens": 75584
+      },
+      "seconds": 29.95,
+      "round": "20261114T080828Z"
+    },
+    {
+      "case": "G03",
+      "semantic_review": "pending",
+      "execution": "passed",
+      "run_id": "e9248aa1-2dcc-4c76-9be7-bbb2150eb4bb",
+      "task_status": "completed",
+      "verification": "passed",
+      "verdict": "pass",
+      "evidence_checked": 2,
+      "usage": {
+        "model_calls": 8,
+        "tool_calls": 19,
+        "tokens": 74751
+      },
+      "seconds": 28.59,
+      "round": "20261114T080828Z"
+    },
+    {
+      "case": "G04",
+      "semantic_review": "pending",
+      "execution": "passed",
+      "run_id": "93f892f0-5127-4ad5-8518-adae5874e809",
+      "task_status": "completed",
+      "verification": "passed",
+      "verdict": "pass",
+      "evidence_checked": 4,
+      "usage": {
+        "model_calls": 14,
+        "tool_calls": 39,
+        "tokens": 181438
+      },
+      "seconds": 59.09,
+      "round": "20261114T080828Z"
+    },
+    {
+      "case": "G05",
+      "semantic_review": "pending",
+      "execution": "passed",
+      "run_id": "95979ecf-4989-48ba-bda3-045159953b7f",
+      "task_status": "completed",
+      "verification": "passed",
+      "verdict": "pass",
+      "evidence_checked": 4,
+      "usage": {
+        "model_calls": 20,
+        "tool_calls": 43,
+        "tokens": 313681
+      },
+      "seconds": 82.51,
+      "round": "20261114T080828Z"
+    },
+    {
+      "case": "G06",
+      "semantic_review": "pending",
+      "execution": "passed",
+      "run_id": "b1b716bd-be9a-4de3-88ed-27f80139a3df",
+      "task_status": "blocked",
+      "verification": "no_evidence",
+      "verdict": null,
+      "evidence_checked": 0,
+      "usage": {
+        "model_calls": 4,
+        "tool_calls": 16,
+        "tokens": 90271
+      },
+      "seconds": 14.94,
+      "round": "20261114T080828Z"
+    },
+    {
+      "case": "G07",
+      "semantic_review": "pending",
+      "execution": "passed",
+      "run_id": "2cc25a88-40c2-4c8f-859f-1761d6d5c373",
+      "task_status": "blocked",
+      "verification": "no_evidence",
+      "verdict": null,
+      "evidence_checked": 0,
+      "usage": {
+        "model_calls": 5,
+        "tool_calls": 12,
+        "tokens": 56538
+      },
+      "seconds": 15.64,
+      "round": "20261114T080828Z"
+    },
+    {
+      "case": "G05",
+      "semantic_review": "pending",
+      "execution": "passed",
+      "run_id": "a41711d2-b0c6-4972-9f81-458529a8ae6f",
+      "task_status": "partial",
+      "verification": "with_warnings",
+      "verdict": "pass",
+      "evidence_checked": 4,
+      "usage": {
+        "model_calls": 24,
+        "tool_calls": 74,
+        "tokens": 311826
+      },
+      "seconds": 123.05,
+      "round": "20261114T081546Z"
+    },
+    {
+      "case": "G04",
+      "semantic_review": "pending",
+      "execution": "passed",
+      "run_id": "e062e545-7511-42f0-922a-e024ea7b4690",
+      "task_status": "partial",
+      "verification": "with_warnings",
+      "verdict": null,
+      "evidence_checked": 4,
+      "usage": {
+        "model_calls": 24,
+        "tool_calls": 55,
+        "tokens": 251558
+      },
+      "seconds": 96.25,
+      "round": "20261114T082150Z"
+    },
+    {
+      "case": "G05",
+      "semantic_review": "pending",
+      "execution": "passed",
+      "run_id": "c46bf27a-81fb-4bd7-b880-f98f30f07605",
+      "task_status": "completed",
+      "verification": "passed",
+      "verdict": "pass",
+      "evidence_checked": 3,
+      "usage": {
+        "model_calls": 12,
+        "tool_calls": 33,
+        "tokens": 159889
+      },
+      "seconds": 66.99,
+      "round": "20261114T082150Z"
+    },
+    {
+      "case": "G04",
+      "semantic_review": "pending",
+      "execution": "passed",
+      "run_id": "2eca4265-7614-46f4-8e7d-b567bb986144",
+      "task_status": "completed",
+      "verification": "passed",
+      "verdict": "pass",
+      "evidence_checked": 3,
+      "usage": {
+        "model_calls": 8,
+        "tool_calls": 26,
+        "tokens": 108690
+      },
+      "seconds": 39.5,
+      "round": "20261114T082641Z"
+    },
+    {
+      "case": "G05",
+      "semantic_review": "pending",
+      "execution": "passed",
+      "run_id": "f66c6414-f0fa-4b7a-9763-ae1d7b2a2a93",
+      "task_status": "completed",
+      "verification": "passed",
+      "verdict": "pass",
+      "evidence_checked": 5,
+      "usage": {
+        "model_calls": 10,
+        "tool_calls": 35,
+        "tokens": 197373
+      },
+      "seconds": 60.85,
+      "round": "20261114T082641Z"
+    },
+    {
+      "case": "G06",
+      "semantic_review": "pending",
+      "execution": "passed",
+      "run_id": "03ac956c-9f99-4a39-a78e-8f30d44e19e6",
+      "task_status": "blocked",
+      "verification": "no_evidence",
+      "verdict": null,
+      "evidence_checked": 0,
+      "usage": {
+        "model_calls": 5,
+        "tool_calls": 19,
+        "tokens": 147151
+      },
+      "seconds": 24.98,
+      "round": "20261114T082641Z"
+    },
+    {
+      "case": "G07",
+      "semantic_review": "pending",
+      "execution": "passed",
+      "run_id": "c0c1a51a-97ca-4f83-8b36-a14b37f0fff4",
+      "task_status": "blocked",
+      "verification": "no_evidence",
+      "verdict": null,
+      "evidence_checked": 0,
+      "usage": {
+        "model_calls": 5,
+        "tool_calls": 12,
+        "tokens": 77925
+      },
+      "seconds": 16.23,
+      "round": "20261114T082641Z"
+    },
+    {
+      "case": "G05",
+      "semantic_review": "pending",
+      "execution": "passed",
+      "run_id": "3e8800bf-8803-42f5-b7c8-cdae817c4dd0",
+      "task_status": "partial",
+      "verification": "with_warnings",
+      "verdict": "revise",
+      "evidence_checked": 5,
+      "usage": {
+        "model_calls": 21,
+        "tool_calls": 58,
+        "tokens": 388771
+      },
+      "seconds": 128.2,
+      "round": "20261114T083241Z"
+    },
+    {
+      "case": "G05",
+      "semantic_review": "pending",
+      "execution": "passed",
+      "run_id": "9e46b2d9-1ec3-40f1-906f-a6b8735f6b1c",
+      "task_status": "completed",
+      "verification": "passed",
+      "verdict": "pass",
+      "evidence_checked": 4,
+      "usage": {
+        "model_calls": 15,
+        "tool_calls": 49,
+        "tokens": 251576
+      },
+      "seconds": 92.04,
+      "round": "20261114T083620Z"
+    }
+  ],
+  "selected_reported_usage": {
+    "model_calls": 56,
+    "tool_calls": 159,
+    "tokens": 786976
+  },
+  "all_fix_round_reported_usage": {
+    "model_calls": 190,
+    "tool_calls": 524,
+    "tokens": 2738321
+  },
+  "rubric_unchanged": true,
+  "pdf_bytes_unchanged": true,
+  "scope": "Iterative fixes; latest results come from targeted runs, not a single final-version seven-case run. Not a blind stability experiment."
+}
