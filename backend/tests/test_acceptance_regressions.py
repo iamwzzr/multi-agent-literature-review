@@ -100,6 +100,29 @@ def test_delivery_gate_independently_checks_supplement_assessments():
                   {'request_assessments':[{'request_id':'request-1','necessary':True}]}):
         changed=deepcopy(review);changed.update(patch)
         assert not delivery_allowed(report,changed,evidence,papers)
+    changed=deepcopy(review)
+    changed['request_assessments'].append({'request_id':'invented','necessary':False})
+    assert not delivery_allowed(report,changed,evidence,papers)
+
+
+def test_unknown_supplement_id_preserves_audit_but_never_grants_delivery(setup):
+    config,payload,_=setup
+    payload['research_budget']={'feedback_batches':0}
+    class BadAssessment(Trio):
+        async def invoke(self,role,payload,schema,tools,meter):
+            result=await super().invoke(role,payload,schema,tools,meter)
+            if role=='reviewer':
+                from app.research.contracts import RequestAssessment
+                result.question_covered=True
+                result.request_assessments=[RequestAssessment(request_id='invented',necessary=False,reason='Wrong ID')]
+            return result
+    with local_client(create_app(config,ScriptedModel(),research_agents=BadAssessment())) as client:
+        response=client.post('/api/v2/reviews/stream',json=payload)
+        assert events(response)[-1]['taskStatus']=='partial'
+        report=client.get('/api/v1/runs/'+response.headers['x-run-id']).json()['report']
+        assert report['review']['verdict']=='undetermined'
+        assert 'UNKNOWN_REQUEST' in report['review']['errors']
+        assert report['review']['request_assessments'][0]['request_id']=='invented'
 
 
 def test_bad_identifier_in_review_comment_is_preserved_but_not_rendered_as_citation(setup):

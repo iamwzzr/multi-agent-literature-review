@@ -415,7 +415,10 @@ class ThreeAgentWorkflow:
                         review['errors'].append('UNKNOWN_REVIEW_EVIDENCE')
                     known_requests={q['request_id'] for q in report['evidence_requests']}
                     if any(a['request_id'] not in known_requests for a in review['request_assessments']):
-                        raise AppError('UNKNOWN_REQUEST','审核引用了不存在的补证请求。',422)
+                        review['status']='partial'
+                        review['verdict']='undetermined'
+                        review['errors'].append('UNKNOWN_REQUEST')
+                        limitations.append('审核引用了不存在的补证请求ID，当前草稿尚未完成有效审核。')
                     required_requests=[]
                     for supplement in report['evidence_requests']:
                         assessments=[a for a in review['request_assessments'] if a['request_id']==supplement['request_id']]
