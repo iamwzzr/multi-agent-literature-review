@@ -324,6 +324,8 @@ class ThreeAgentWorkflow:
                               'evidence_snapshot_id': snapshot_id,
                               'claims': [dict(c.model_dump(), claim_id=identifier('claim')) for c in written.claims],
                               'comparison_table': [r.model_dump() for r in written.comparison_table], 'limitations': written.limitations,
+                              'evidence_requests':[{'request_id':f'request-{n}','question':q}
+                                                   for n,q in enumerate(written.evidence_requests,1)],
                               'status': written.status, 'task_id':task['task_id'],
                               'issue_responses':[dict(i,status='addressed') for i in pending]}
                     for row in report['comparison_table']:
@@ -338,14 +340,6 @@ class ThreeAgentWorkflow:
                             'evidence_ids':list(dict.fromkeys(cited)) or list(allowed_ids),
                             'scope':'Check the factual support and the stated scope of this limitation.'})
                     ws.save('report_draft', report, report['report_id'])
-                    if written.evidence_requests and feedback < budget.feedback_batches:
-                        pending = [{'issue_id': identifier('issue'), 'owner': 'researcher', 'problem': q,
-                                    'required_fix': q, 'status': 'open'} for q in written.evidence_requests]
-                        ws.save('feedback_batch', {'batch': feedback+1, 'issues': pending})
-                        feedback += 1
-                        need_research = True
-                        yield phase('Reporter 请求定向补证', ['search'], ['writing'], feedback=True)
-                        continue
                     yield phase('Reviewer 回读原文审核', ['verification'], ['search', 'analysis', 'writing'])
                     originals = []
                     for document_id, page in dict.fromkeys((e['document_id'], e['location']['page']) for e in evidence):
@@ -365,6 +359,8 @@ class ThreeAgentWorkflow:
                         'undetermined' if any(r.verdict=='undetermined' for r in results) else 'pass',
                         checked_claim_ids=[c for r in results for c in r.checked_claim_ids],
                         unchecked_claim_ids=[c for r in results for c in r.unchecked_claim_ids],
+                        question_covered=all(r.question_covered for r in results),
+                        request_assessments=[a for r in results for a in r.request_assessments],
                         issues=[i for r in results for i in r.issues])
                     conflicts=overlap_issues(report,evidence,task)
                     if conflicts:
@@ -380,9 +376,21 @@ class ThreeAgentWorkflow:
                                   reviewed_report_version=report['report_version'],
                                   reviewed_evidence_snapshot_id=snapshot_id)
                     review['issues'] = [dict(i, issue_id=identifier('issue'), status='open') for i in review['issues']]
-                    if written.evidence_requests:
-                        limitations.extend(written.evidence_requests)
-                        review['verdict'] = 'undetermined'
+                    if any(set(re.findall(r'\bevidence-[A-Za-z0-9_-]+\b',i['problem']+' '+i['required_fix']))-allowed_ids for i in review['issues']):
+                        review['verdict']='undetermined'
+                        review['errors'].append('UNKNOWN_REVIEW_EVIDENCE')
+                    known_requests={q['request_id'] for q in report['evidence_requests']}
+                    if any(a['request_id'] not in known_requests for a in review['request_assessments']):
+                        raise AppError('UNKNOWN_REQUEST','审核引用了不存在的补证请求。',422)
+                    required_requests=[]
+                    for supplement in report['evidence_requests']:
+                        assessments=[a for a in review['request_assessments'] if a['request_id']==supplement['request_id']]
+                        if not review['question_covered'] or not assessments or any(a['necessary'] for a in assessments):
+                            required_requests.append(supplement)
+                    if required_requests:
+                        review['verdict']='undetermined'
+                    ws.save('request_assessment',{'report_version':report['report_version'],
+                        'assessments':review['request_assessments'],'required_request_ids':[q['request_id'] for q in required_requests]})
                     ws.save('review_result', review)
                     if delivery_allowed(report, review, evidence, papers):
                         for issue in pending:
@@ -392,7 +400,8 @@ class ThreeAgentWorkflow:
                     if feedback >= budget.feedback_batches or checked.status == 'failed':
                         self.report = self.render(report, review, evidence, papers, documents, 'partial', limitations, meter)
                         break
-                    pending = review['issues']
+                    pending = review['issues']+[{'issue_id':identifier('issue'),'owner':'researcher',
+                        'problem':q['question'],'required_fix':q['question'],'status':'open'} for q in required_requests]
                     for issue in pending:
                         ws.save('issue_response', dict(issue, status='addressed', next_report_version=report['report_version']+1))
                     need_research = any(i['owner'] == 'researcher' for i in pending) or bool(checked.unchecked_claim_ids)
@@ -474,7 +483,7 @@ class ThreeAgentWorkflow:
             [key for row in report['comparison_table'] for key in row['evidence_ids']] +
             [key for value in limitations + report['limitations'] +
              [i['problem'] for i in (review or {}).get('issues', [])]
-             for key in re.findall(r'\bevidence-[A-Za-z0-9_-]+\b', value)]))
+             for key in re.findall(r'\bevidence-[A-Za-z0-9_-]+\b', value) if key in by_id]))
         for key in keys:
             if key not in by_id:
                 raise AppError('UNKNOWN_EVIDENCE', '交付包含无法定位的证据引用。', 422)
@@ -499,12 +508,16 @@ class ThreeAgentWorkflow:
             for row in report['comparison_table']]
         warnings = list(dict.fromkeys(limitations + report['limitations'] +
                     [i['problem'] for i in (review or {}).get('issues', [])]))
-        warnings = [display_citations(value, references) for value in warnings]
+        # Preserve raw review objects for audit, but do not treat an invented
+        # identifier in reviewer commentary as a registered report citation.
+        warnings = [display_citations(re.sub(r'\bevidence-[A-Za-z0-9_-]+\b',
+            lambda m:m[0] if m[0] in by_id else '（未登记的证据标识）',value), references) for value in warnings]
         if status != 'completed':
             warnings.insert(0, '以下为未通过最终审核的部分草稿，不能作为已审核报告使用。')
         if warnings or not sections:
             sections.append({'id': 'unresolved', 'heading': '状态与未解决问题', 'paragraphs': warnings or ['资料不足。']})
         return {'sections': sections, 'evidence': front_evidence, 'claims': report['claims'],
+                'followup_requests':report.get('evidence_requests',[]),
                 'comparison_table': display_table, 'review': review,
                 'report_version': report.get('report_version'), 'evidence_snapshot_id': report.get('evidence_snapshot_id'),
                 'task_status': status, 'verification': 'passed' if status == 'completed' else 'with_warnings',

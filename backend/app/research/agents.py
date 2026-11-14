@@ -10,6 +10,24 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain_openai import ChatOpenAI
 
 from ..errors import AppError
+from .contracts import ReportOutput, ComparisonRow
+
+
+def repair_single_comparison_row(schema, candidate):
+    """Lossless table reshape before audit; no fact/claim/citation repair."""
+    if not issubclass(schema,ReportOutput) or not isinstance(candidate,dict): return None
+    limit=next((m.max_length for m in schema.model_fields['comparison_table'].metadata if hasattr(m,'max_length')),None)
+    rows=candidate.get('comparison_table')
+    if limit!=1 or not isinstance(rows,list) or len(rows)<=1: return None
+    try:
+        checked=[ComparisonRow.model_validate(r) for r in rows]
+        merged={'cells':{},'conditions':{},'evidence_ids':list(dict.fromkeys(e for r in checked for e in r.evidence_ids))}
+        for n,row in enumerate(checked,1):
+            for key in ('cells','conditions'):
+                merged[key].update({f'{n}.{k}':v for k,v in getattr(row,key).items()})
+        return schema.model_validate({**candidate,'comparison_table':[merged]})
+    except ValueError:
+        return None
 
 PROMPTS = {
     'researcher': 'Work concisely: initial_passages already contain original text. Return evidence drafts directly using known span IDs; do not also register the same evidence via record_evidence. Prefer 2-4 focused passages. Read more only to resolve a specific gap. Read original passages. Extract findings and explicitly reported experimental conditions. Return only existing span IDs. Do not write a report or assign identity status. Report gaps precisely.',
@@ -61,6 +79,23 @@ PROMPTS['reporter'] += (' conditions_preview is a bounded extraction, not indepe
     'Every model name, baseline restriction and dataset claim must be supported by its associated quotation. '
     'When correcting an issue, read previous_report.claims[].text for needs_correction claims; '
     'fix that exact statement and avoid adding new background details. If a detail is unnecessary and unsupported, omit it.')
+PROMPTS['reviewer'] += (' Assess EVERY requested_evidence request by its program-assigned request_id. '
+    'necessary=true means the evidence is required to answer the actual question or support an indispensable claim; '
+    'optional numeric settings, extra experiments and unrelated expansions are not necessary for a scoped mechanism answer. '
+    'Explain each assessment. Set question_covered=true only if all requested parts of the original question are answered '
+    'by this draft; do not excuse a missing required part by omitting its claim. Return revise for incorrect facts or citation pages. '
+    'Assess question coverage across report_outline, not just this audit batch. The outline is draft text, not evidence; '
+    'audit only this batch against its originals. The program separately requires every batch claim to be checked. '
+    'A supplement request is not automatically proof of missing required evidence.')
+PROMPTS['reporter'] += (' When requested evidence cannot be obtained, remove dependent absolute claims and answer '
+    'with precisely scoped insufficiency rather than repeatedly asking for proof that something is absent. '
+    'Mark conclusions derived from model equations or combined source premises as synthesis, with the premises cited. '
+    'Do not add full-paper absence claims to an answer that only concerns the evidence actually collected.')
+PROMPTS['reviewer'] += (' A scoped conclusion that collected evidence cannot establish a universal ranking does not '
+    'require proving that no comparison exists anywhere in the full papers. Distinguish these two propositions. '
+    'A synthesis may be a valid deduction from cited equations/premises without verbatim author wording; '
+    'audit its premises and inference instead of demanding a literal matching sentence. Unstated assumptions '
+    'or extensions beyond the reported model remain blocking.')
 
 
 class UsageCallback(AsyncCallbackHandler):
@@ -179,6 +214,12 @@ class ThreeAgents:
                 detail=str(error)[:1400]
                 meter.workspace.save('agent_format_retry', {'agent':role,'attempt':attempt+1,
                     'exception_type':type(error).__name__,'validation_error':detail})
+                for call in getattr(getattr(error,'ai_message',None),'tool_calls',[]):
+                    fixed=repair_single_comparison_row(schema,call['args']) if call['name']==schema.__name__ else None
+                    if fixed is not None:
+                        meter.workspace.save('table_shape_repair',{'agent':role,'original_draft':call['args'],
+                            'reason':'lossless_rows_to_columns_before_review'})
+                        return fixed
                 if attempt == 0:
                     schema_text=json.dumps(schema.model_json_schema())
                     calls=getattr(getattr(error,'ai_message',None),'tool_calls',[])
@@ -212,7 +253,11 @@ class ThreeAgents:
                 try:
                     return schema.model_validate(output)
                 except ValueError:
-                    pass
+                    fixed=repair_single_comparison_row(schema,output)
+                    if fixed is not None:
+                        meter.workspace.save('table_shape_repair',{'agent':role,'original_draft':output,
+                            'reason':'lossless_rows_to_columns_before_review'})
+                        return fixed
             # Some compatible providers return valid JSON as ordinary content even
             # with a structured-output tool configured. Still enforce the same schema.
             returned = result.get('messages', [])
@@ -224,7 +269,13 @@ class ThreeAgents:
                 try:
                     return schema.model_validate_json(candidate)
                 except ValueError:
-                    pass
+                    try: decoded=json.loads(candidate)
+                    except ValueError: decoded=None
+                    fixed=repair_single_comparison_row(schema,decoded)
+                    if fixed is not None:
+                        meter.workspace.save('table_shape_repair',{'agent':role,'original_draft':decoded,
+                            'reason':'lossless_rows_to_columns_before_review'})
+                        return fixed
             meter.workspace.save('agent_format_retry', {'agent':role,'attempt':attempt+1,
                 'response_keys':list(result),'structured_type':type(output).__name__,'last_message_type':type(returned[-1]).__name__ if returned else None})
             messages = returned + [{'role':'user','content':

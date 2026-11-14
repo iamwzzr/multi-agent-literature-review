@@ -20,6 +20,68 @@ from test_business import setup, local_client, ScriptedModel, events
 from test_three_agent import Trio
 
 
+@pytest.mark.parametrize('assessment,covered,expected_research,expected_status',[
+    ('optional',True,1,'completed'),('required',True,2,'partial'),
+    ('missing',True,2,'partial'),('optional',False,2,'partial')])
+def test_only_explicitly_reviewed_optional_requests_can_avoid_research(setup,assessment,covered,expected_research,expected_status):
+    config,payload,_=setup
+    payload['research_budget']={'feedback_batches':1}
+    class Assess(Trio):
+        async def invoke(self,role,payload,schema,tools,meter):
+            result=await super().invoke(role,payload,schema,tools,meter)
+            if role=='reviewer':
+                from app.research.contracts import RequestAssessment
+                assert payload['requested_evidence'][0]['request_id']=='request-1'
+                result.question_covered=covered
+                result.request_assessments=[] if assessment=='missing' else [RequestAssessment(
+                    request_id='request-1',necessary=assessment=='required',reason='Required original support' if assessment=='required' else 'Extra cost experiment is outside the mechanism question')]
+            return result
+    trio=Assess(requests=True)
+    with local_client(create_app(config,ScriptedModel(),research_agents=trio)) as client:
+        response=client.post('/api/v2/reviews/stream',json=payload)
+        assert events(response)[-1]['taskStatus']==expected_status
+        assert trio.roles.count('researcher')==expected_research
+
+
+def test_delivery_gate_independently_checks_supplement_assessments():
+    from copy import deepcopy
+    from app.research.contracts import delivery_allowed
+    report={'report_version':1,'evidence_snapshot_id':'s','claims':[
+        {'claim_id':'c','kind':'finding','evidence_ids':['e']}],
+        'evidence_requests':[{'request_id':'request-1','question':'Extra experiment'}]}
+    review={'status':'success','verdict':'pass','reviewed_report_version':1,'reviewed_evidence_snapshot_id':'s',
+            'checked_claim_ids':['c'],'unchecked_claim_ids':[],'issues':[],'question_covered':True,
+            'request_assessments':[{'request_id':'request-1','necessary':False,'reason':'Outside the question'}]}
+    evidence=[{'evidence_id':'e','paper_id':'p','correspondence':'user_provided'}]
+    papers=[{'paper_id':'p','source':'local','identity_status':'unresolved'}]
+    assert delivery_allowed(report,review,evidence,papers)
+    for patch in ({'question_covered':False},{'request_assessments':[]},
+                  {'request_assessments':[{'request_id':'wrong','necessary':False}]},
+                  {'request_assessments':[{'request_id':'request-1','necessary':True}]}):
+        changed=deepcopy(review);changed.update(patch)
+        assert not delivery_allowed(report,changed,evidence,papers)
+
+
+def test_bad_identifier_in_review_comment_is_preserved_but_not_rendered_as_citation(setup):
+    config,payload,_=setup
+    payload['research_budget']={'feedback_batches':0}
+    class BadReview(Trio):
+        async def invoke(self,role,payload,schema,tools,meter):
+            result=await super().invoke(role,payload,schema,tools,meter)
+            if role=='reviewer':
+                from app.research.contracts import IssueDraft
+                result.issues=[IssueDraft(claim_id=payload['report']['claims'][0]['claim_id'],owner='reporter',
+                    severity='blocking',problem='Check evidence-invented-original',required_fix='Recheck original')]
+            return result
+    with local_client(create_app(config,ScriptedModel(),research_agents=BadReview())) as client:
+        response=client.post('/api/v2/reviews/stream',json=payload)
+        assert events(response)[-1]['taskStatus']=='partial'
+        report=client.get('/api/v1/runs/'+response.headers['x-run-id']).json()['report']
+        assert report['review']['verdict']=='undetermined'
+        assert 'evidence-invented-original' in report['review']['issues'][0]['problem']
+        assert 'evidence-invented-original' not in json.dumps(report['sections'])
+
+
 def test_conditions_and_contested_claims_are_visible_but_bounded():
     from app.research.context import evidence_view,report_view
     card={'evidence_id':'e','document_id':'d','paper_id':'p','location':{'page':1},
@@ -176,6 +238,7 @@ def test_batched_review_preserves_cross_row_comparison_conditions():
     original=[{'data':{'document_id':'d','page':1,'text':'original','content_hash':'h'}}]
     batches=review_payloads({},report,evidence,[],original,[],10000)
     assert len(batches)==2
+    assert all(len(b['report_outline'])==7 for b in batches)
     assert all([row['cells']['datasets'] for row in b['comparison_context']]==
                ['SharedQA, OtherQA','SharedQA, ThirdQA'] for b in batches)
 

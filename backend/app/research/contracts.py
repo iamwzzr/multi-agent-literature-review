@@ -89,6 +89,12 @@ class IssueDraft(Contract):
         return self
 
 
+class RequestAssessment(Contract):
+    request_id: str
+    necessary: bool
+    reason: str = Field(min_length=1,max_length=1000)
+
+
 class ReviewOutput(Contract):
     status: Literal['success', 'partial', 'failed']
     verdict: Literal['pass', 'revise', 'undetermined']
@@ -96,6 +102,8 @@ class ReviewOutput(Contract):
     issues: list[IssueDraft]
     unchecked_claim_ids: list[str]
     errors: list[str] = Field(default_factory=list)
+    question_covered: bool = False
+    request_assessments: list[RequestAssessment] = Field(default_factory=list)
 
 
 def delivery_allowed(report, review, evidence, papers):
@@ -110,6 +118,10 @@ def delivery_allowed(report, review, evidence, papers):
         return False
     if any(i['severity'] == 'blocking' and i['status'] != 'resolved' for i in review['issues']):
         return False
+    for request in report.get('evidence_requests',[]):
+        assessments=[a for a in review.get('request_assessments',[]) if a['request_id']==request['request_id']]
+        if not review.get('question_covered') or not assessments or any(a['necessary'] for a in assessments):
+            return False
     by_id = {e['evidence_id']: e for e in evidence}
     by_paper = {p['paper_id']: p for p in papers}
     for claim in report['claims']:

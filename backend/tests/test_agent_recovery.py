@@ -64,3 +64,22 @@ def test_validation_retry_preserves_draft_and_identifies_error_without_research_
     assert result.status=='partial' and builds[1]['tools']==[]
     assert 'unexpected: extra fields not permitted' in inputs[1]['messages'][0]['content']
     assert 'retained-draft' in inputs[1]['messages'][0]['content']
+
+
+def test_single_row_shape_repair_retains_every_fact_and_reference_and_rejects_other_errors():
+    from copy import deepcopy
+    from app.research.agents import repair_single_comparison_row
+    from app.research.contracts import report_contract
+    schema=report_contract({'question':'给一行比较','output_requirements':{'max_claims':1}})
+    data={'status':'success','claims':[{'text':'Methods differ','kind':'synthesis','scope':'these sources','evidence_ids':['e1','e2']}],
+          'comparison_table':[{'cells':{'method':'A','finding':'original finding A'},'conditions':{'dataset':None},'evidence_ids':['e1']},
+                              {'cells':{'method':'B','finding':'original finding B'},'conditions':{'dataset':'SharedQA'},'evidence_ids':['e2']}]}
+    before=deepcopy(data);fixed=repair_single_comparison_row(schema,data)
+    assert data==before
+    row=fixed.comparison_table[0]
+    assert list(row.cells.values())==['A','original finding A','B','original finding B']
+    assert row.conditions=={'1.dataset':None,'2.dataset':'SharedQA'} and row.evidence_ids==['e1','e2']
+    bad=deepcopy(data);bad['claims'][0]['kind']='invented'
+    assert repair_single_comparison_row(schema,bad) is None
+    bad=deepcopy(data);bad['comparison_table'][0]['unexpected']='must not disappear'
+    assert repair_single_comparison_row(schema,bad) is None

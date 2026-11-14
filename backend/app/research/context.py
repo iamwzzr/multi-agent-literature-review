@@ -93,6 +93,11 @@ def original_windows(originals, evidence):
 
 def review_payloads(task,report,evidence,papers,originals,pending,max_chars):
     by_id={e['evidence_id']:e for e in evidence}
+    outline=[]
+    for claim in report['claims']:
+        entry={'claim_id':claim['claim_id'],'text_preview':claim['text'][:200]}
+        if len(json.dumps(outline+[entry],ensure_ascii=False))>min(8000,max_chars//4): break
+        outline.append(entry)
     # A batch must still see the other comparison conditions. Otherwise it
     # cannot notice a claimed lack of overlap contradicting a neighboring row.
     comparison=[]
@@ -112,6 +117,9 @@ def review_payloads(task,report,evidence,papers,originals,pending,max_chars):
                 for e in selected],
             'papers':paper_view(papers),'original_pages':original_windows(originals,selected),
             'comparison_context':comparison,
+            'requested_evidence':report.get('evidence_requests',[]),
+            'report_outline':outline,
+            'outline_is_preview_not_source':True,
             'extracted_condition_context':[{'evidence_id':e['evidence_id'],'paper_id':e['paper_id'],
                  'conditions_preview':condition_view(e.get('conditions',{})),
                  'must_check_against_original':True} for e in evidence],
