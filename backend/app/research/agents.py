@@ -44,6 +44,13 @@ PROMPTS['reviewer'] += (' Neighboring page excerpts are original source context;
     'Intersect the named datasets: different base models do not imply datasets are disjoint. '
     'Flag any no-overlap claim contradicted by a shared task name, and any stronger all-tasks claim '
     'than the original superior-or-competitive result. A matching dataset alone still does not establish a fair comparison.')
+PROMPTS['reporter'] += (' Preserve source dataset labels when their full names are not established; '
+    'using a source label as-is is not a claim about its expansion. Do not add speculative full-name uncertainty '
+    'to a limitation when the answer only uses the original label.')
+PROMPTS['reviewer'] += (' A source label or abbreviation used unchanged in the answer does not require expansion '
+    'unless the user requested the full name. Do not block a report merely for retaining such a literal label. '
+    'An asserted expansion still needs original support. Blocking issues must identify a material factual, '
+    'citation, scope or comparison error, not an optional naming preference.')
 
 
 class UsageCallback(AsyncCallbackHandler):
