@@ -1,5 +1,6 @@
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, create_model
+import re
 
 
 class Contract(BaseModel):
@@ -23,6 +24,7 @@ class EvidenceDraft(Contract):
 
 class ResearchOutput(Contract):
     status: Literal['success', 'partial', 'failed']
+    outcome: Literal['evidence_found','insufficient_evidence','execution_error'] | None = None
     evidence: list[EvidenceDraft] = Field(max_length=12)
     coverage_by_question: list[str] = Field(default_factory=list)
     unresolved_gaps: list[str] = Field(default_factory=list)
@@ -49,6 +51,24 @@ class ReportOutput(Contract):
     evidence_requests: list[str] = Field(default_factory=list, max_length=5)
     limitations: list[str] = Field(default_factory=list, max_length=20)
     errors: list[str] = Field(default_factory=list)
+
+
+def report_contract(task):
+    """Enforce requested output size before a draft reaches the audit queue."""
+    requirements=task.get('output_requirements',{})
+    claims=requirements.get('max_claims',30)
+    claims=claims if type(claims) is int and 1<=claims<=30 else 30
+    question=task.get('question','')
+    rows=requirements.get('max_comparison_rows')
+    if type(rows) is not int or not 0<=rows<=20:
+        numbers={'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10}
+        match=re.search(r'([一二三四五六七八九十]|\d+)\s*行',question)
+        rows=numbers.get(match[1],int(match[1]) if match and match[1].isdigit() else 1) if match else (
+            20 if re.search(r'表格|比较表|comparison table',question,re.I) else 0)
+        rows=min(rows,20)
+    return create_model('ReportOutput',__base__=ReportOutput,
+        claims=(list[ClaimDraft],Field(min_length=1,max_length=claims)),
+        comparison_table=(list[ComparisonRow],Field(default_factory=list,max_length=rows)))
 
 
 class IssueDraft(Contract):

@@ -70,12 +70,24 @@ def original_windows(originals, evidence):
         if windows:
             result.append({'document_id':data['document_id'],'page':data['page'],
                 'content_hash':data['content_hash'],'windows':windows,'is_excerpt':True,
+                'adjacent_pages':[p for p in data.get('adjacent_pages',[]) if
+                    (p['page']<data['page'] and any(w['start']==0 for w in windows)) or
+                    (p['page']>data['page'] and any(w['end']>=len(page_text)-300 for w in windows))],
                 'full_page_available_via_read_original':False,'more_passages_available_via_read_original':True})
     return result
 
 
 def review_payloads(task,report,evidence,papers,originals,pending,max_chars):
     by_id={e['evidence_id']:e for e in evidence}
+    # A batch must still see the other comparison conditions. Otherwise it
+    # cannot notice a claimed lack of overlap contradicting a neighboring row.
+    comparison=[]
+    for row in report.get('comparison_table',[])[:20]:
+        entry={key:{k:str(v)[:400] if v is not None else None for k,v in list(row.get(key,{}).items())[:8]}
+               for key in ('cells','conditions')}
+        if len(json.dumps(comparison+[entry],ensure_ascii=False))>min(10000,max_chars//4):
+            break
+        comparison.append(entry)
     def pack(claims):
         ids={eid for c in claims for eid in c['evidence_ids']}
         selected=[by_id[eid] for eid in ids if eid in by_id]
@@ -85,12 +97,15 @@ def review_payloads(task,report,evidence,papers,originals,pending,max_chars):
                 'paper_id':e['paper_id'],'location':e['location'],'quote_in_original_windows':True}
                 for e in selected],
             'papers':paper_view(papers),'original_pages':original_windows(originals,selected),
+            'comparison_context':comparison,
+            'comparison_context_is_preview':True,
+            'more_comparison_context_available_via_read_report_claim':True,
             'previous_issues':[{'issue_id':i.get('issue_id'),'owner':i.get('owner'),
                 'problem_preview':i.get('problem','')[:500],'required_fix_preview':i.get('required_fix','')[:500]} for i in pending]}
     groups=[];current=[]
     for claim in report['claims']:
         candidate=pack(current+[claim])
-        if len(json.dumps(candidate,ensure_ascii=False))>max_chars or len(current)>=3:
+        if len(json.dumps(candidate,ensure_ascii=False))>max_chars or len(current)>=6:
             if current: groups.append(pack(current));current=[]
             candidate=pack([claim])
             if len(json.dumps(candidate,ensure_ascii=False))>max_chars:

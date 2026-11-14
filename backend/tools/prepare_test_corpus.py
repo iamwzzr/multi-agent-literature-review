@@ -40,6 +40,7 @@ def fetch(url, path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--download', action='store_true', help='Fetch public PDFs and identity pages')
+    parser.add_argument('--write-metadata',action='store_true',help='Write hash-bound user-supplied bibliography sidecars')
     args = parser.parse_args()
     target = ROOT / 'docs/testing/corpus.json'
     expected = {p['arxiv_id']:p['sha256'] for p in json.loads(target.read_text())['papers']} if target.exists() else {}
@@ -80,6 +81,13 @@ def main():
             raise ValueError('Frozen corpus hash changed: ' + identifier + '; inspect before updating the manifest')
         if regression:
             shutil.copyfile(pdf, fixed / filename)
+        if args.write_metadata:
+            year=record['arxiv_first_publication_date']
+            supplied={'sha256':record['sha256'],'title':record['title'],'authors':record['authors'],
+                      'year':int(year[:4]) if year else None,'source':source,
+                      'year_basis':'first_arxiv_submission','identity_status':'not_assigned_by_manifest'}
+            for target_pdf in ([pdf,fixed/filename] if regression else [pdf]):
+                target_pdf.with_suffix('.metadata.json').write_text(json.dumps(supplied,ensure_ascii=False,indent=2)+'\n')
         manifest.append(record)
         print(key, identifier, record['bytes'], flush=True)
     target.write_text(json.dumps({'prepared_at': datetime.now(timezone.utc).isoformat(),

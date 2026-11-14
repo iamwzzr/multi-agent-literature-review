@@ -62,6 +62,8 @@ def main():
                 source=ROOT/'data/papers'/p['filename']
                 assert hashlib.sha256(source.read_bytes()).hexdigest()==p['sha256']
                 shutil.copyfile(source,library/p['filename'])
+                if source.with_suffix('.metadata.json').is_file():
+                    shutil.copyfile(source.with_suffix('.metadata.json'),(library/p['filename']).with_suffix('.metadata.json'))
             assert {p.name for p in library.glob('*.pdf')}=={by_key[k]['filename'] for k in case['keys']}, 'Unexpected extra case PDFs'
             request={'conversationId':case_id+'-'+uuid4().hex,
                      'project':{'id':'fixed-'+timestamp+'-'+case_id,'name':'Fixed '+case_id,

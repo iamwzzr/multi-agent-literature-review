@@ -13,6 +13,7 @@ from .config import Settings
 from .errors import AppError
 from .schemas import Project
 from .store import Store
+from .metadata import bibliography, metadata_fingerprint
 
 
 def contained(path: Path, roots: list[Path]) -> bool:
@@ -28,11 +29,20 @@ def file_fingerprint(path, max_bytes):
     stat = path.stat()
     if stat.st_size > max_bytes:
         raise AppError('PDF_TOO_LARGE', 'PDF 超过单文件大小限制，请缩小文献集。')
-    return ':'.join(map(str, (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)))
+    return ':'.join(map(str, (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, metadata_fingerprint(path))))
 
 
 def normalize(text):
     return ' '.join(text.split())
+
+
+def content_regions(pages):
+    """Identify explicit bibliography boundaries; never discard appendix evidence."""
+    back=False
+    for text in pages:
+        if re.search(r'(?im)^\s*(?:references|bibliography)\s*$',text):
+            back=True
+        yield 'back_matter' if back else 'body'
 
 
 def tokens(text):
@@ -154,7 +164,7 @@ class Library:
                 record = old
             else:
                 digest = await asyncio.to_thread(digest_file, path)
-                if old and old['digest'] == digest:
+                if old and old['digest'] == digest and old['fingerprint'].split(':')[-1] == fingerprint.split(':')[-1]:
                     record = {**old, 'fingerprint': fingerprint}
                 else:
                     parsed = await parse_pdf(path, self.config)
@@ -192,13 +202,18 @@ def indexed_paper(path, digest, fingerprint, parsed):
     paper_id = 'paper-' + hashlib.sha256((str(path) + digest).encode()).hexdigest()[:24]
     paper = {'id': paper_id, 'title': parsed['title'] or path.stem, 'author': parsed['author'] or '作者未知',
              'year': None, 'pages': len(parsed['pages']), 'summary': '', 'pdfAvailable': True}
+    metadata = bibliography(path,digest)
+    if metadata:
+        paper.update(title=metadata['title'],author=', '.join(metadata['authors']) or '作者未知',
+                     year=metadata['year'],**{k:v for k,v in metadata.items() if k not in ('title','authors','year')})
     chunks = []
-    for page, text in enumerate(parsed['pages'], 1):
+    for page, (text,region) in enumerate(zip(parsed['pages'],content_regions(parsed['pages'])), 1):
         text = normalize(text)
         for start in range(0, len(text), 1300):
             passage = text[start:start+1600]
             if len(passage.strip()) >= 20:
-                chunks.append({'id': f'{paper_id}-p{page}-c{start}', 'paper': paper, 'page': page, 'text': passage})
+                chunks.append({'id': f'{paper_id}-p{page}-c{start}', 'paper': paper, 'page': page,
+                               'text': passage,'content_region':region})
     if chunks:
         paper['summary'] = chunks[0]['text'][:220]
     return {'id': paper_id, 'path': str(path), 'digest': digest, 'fingerprint': fingerprint, 'paper': paper, 'chunks': chunks}
@@ -210,32 +225,69 @@ class SearchIndex:
     def __init__(self, chunks):
         self.chunks = chunks
         self.postings = defaultdict(list)
+        self.document_terms=defaultdict(Counter)
+        self.document_lengths=Counter()
         lengths = []
         for i, chunk in enumerate(chunks):
             counts = Counter(tokens(chunk['text'] + ' ' + chunk['paper']['title']))
+            document=chunk['paper']['id']
+            self.document_lengths[document]+=1
+            self.document_terms[document].update(counts.keys())
             lengths.append(sum(counts.values()))
             for word, count in counts.items():
                 self.postings[word].append((i, count))
         average = sum(lengths) / max(1, len(lengths)) or 1
         self.norms = [1.2 * (.25 + .75 * length / average) for length in lengths]
 
-    def search(self, query: str, limit=6):
+    def search(self, query: str, limit=6, document_ids=None, paper_ids=None):
+        if limit <= 0:
+            return []
+        # Conservative, domain-level aliases; not machine translation. Unknown
+        # concepts remain unknown and can be searched by the Researcher in English.
+        aliases = {'检索':'retrieval retrieve', '生成':'generation generate',
+                   '反思':'reflection', '检查':'critique support', '判断':'decide decision',
+                   '是否需要':'need necessary adaptive', '按需':'adaptive demand',
+                   '下一句':'next sentence', '下一句话':'next sentence',
+                   '什么时候':'trigger confidence', '何时':'trigger confidence',
+                   '重新':'regenerate', '置信度':'confidence probability threshold',
+                   '训练':'training', '推理':'inference reasoning', '证据':'evidence support',
+                   '数据集':'dataset', '指标':'metric', '成本':'cost', '硬件':'hardware',
+                   '比较':'compare comparison', '评估':'evaluation', '准确率':'accuracy'}
+        expanded = query + ' ' + ' '.join(v for k,v in aliases.items() if k in query)
+        prioritize_body=not re.search(r'appendi[xxc]|prompt|附录|提示词',query,re.I)
         scores = defaultdict(float)
-        for term in sorted(set(tokens(query))):
+        for term in sorted(set(tokens(expanded))):
             matches = self.postings.get(term, ())
             inverse = math.log(1 + (len(self.chunks) - len(matches) + .5) / (len(matches) + .5))
+            frequencies={doc:terms[term]/self.document_lengths[doc] for doc,terms in self.document_terms.items()}
+            maximum=max(frequencies.values(),default=1) or 1
             for i, count in matches:
-                scores[i] += inverse * count * 2.2 / (count + self.norms[i])
+                chunk=self.chunks[i]
+                if document_ids is not None and chunk.get('document_id') not in document_ids:
+                    continue
+                if paper_ids is not None and chunk.get('paper_id',chunk['paper']['id']) not in paper_ids:
+                    continue
+                # Suppress incidental mentions of another method in related work
+                # or references, while retaining their original passages.
+                topical=.15+.85*frequencies[chunk['paper']['id']]/maximum
+                body=.65 if prioritize_body and chunk.get('content_region')=='back_matter' else 1
+                scores[i] += topical * body * inverse * count * 2.2 / (count + self.norms[i])
         ranked = sorted(scores, key=lambda i: (-scores[i], self.chunks[i]['id']))
         # Limit repeated passages on the same page so several papers can be represented.
-        result, per_page = [], Counter()
+        per_page, grouped = Counter(), {}
         for i in ranked:
             chunk = self.chunks[i]
             key = (chunk['paper']['id'], chunk['page'])
             if per_page[key] >= 2:
                 continue
             per_page[key] += 1
-            result.append(chunk)
-            if len(result) == limit:
-                break
+            grouped.setdefault(chunk['paper']['id'], []).append(chunk)
+        # Round-robin ranked documents, retaining BM25 ordering within each one.
+        # A single long paper must not occupy every slot in a comparison query.
+        result=[]
+        while grouped and len(result)<limit:
+            for key in list(grouped):
+                result.append(grouped[key].pop(0))
+                if not grouped[key]: del grouped[key]
+                if len(result)==limit: break
         return result

@@ -84,14 +84,15 @@ async def inspect(manifest, cases, runtime):
     store = Store(runtime)
     project = Project(id='fixed-corpus-index', name='Fixed corpus', workingDirectory=str(ROOT),
                       knowledgePaths=['data/test-corpus/fixed'])
-    chunks, warnings = await Library(config, store).index(project.id, resolve_project(project, config))
+    library=Library(config,store)
+    chunks, warnings = await library.index(project.id, resolve_project(project, config))
     assert len({c['paper']['id'] for c in chunks}) == 3
     index = SearchIndex(chunks)
-    filename_keys = {p['filename']:p['key'] for p in manifest['papers']}
+    digest_keys = {p['sha256']:p['key'] for p in manifest['papers']}
     id_keys = {}
     for c in chunks:
-        id_keys[c['paper']['id']] = next(key for filename,key in filename_keys.items()
-                                         if c['paper']['title'] == Path(filename).stem)
+        source=library.source(project.id,c['paper']['id'])
+        id_keys[c['paper']['id']] = digest_keys[hashlib.sha256(source.read_bytes()).hexdigest()]
     retrieval = []
     for probe in cases['retrieval_probes']:
         results = index.search(probe['query'], 6)
