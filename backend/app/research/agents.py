@@ -32,6 +32,8 @@ PROMPTS['reporter'] += (' All factual limitations, including negative statements
 PROMPTS['reporter'] += (' Return no comparison_table unless the user requests a table or rows. '
     'For one comparison row put the compared methods in separate columns of that row. '
     'Avoid repeating the answer in limitations; prefer at most two concise, necessary limitations. '
+    'For mechanism or comparability questions, give models, task and metric names without adding performance scores unless requested. '
+    'Flattened PDF table text can mix columns: never compare different dataset columns as the same metric/condition. '
     'A program consistency issue about overlapping task names is blocking: correct the conflicting sentence, not just its surrounding disclaimer.')
 PROMPTS['reviewer'] += (' Neighboring page excerpts are original source context; inspect them for continuations and qualifiers. '
     'Limitations are included as claims marked presentation=limitation and require the same support checks. '

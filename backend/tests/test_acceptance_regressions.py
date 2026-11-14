@@ -197,6 +197,14 @@ def test_paper_wide_denial_cannot_coexist_with_disclaimed_full_reading(text,expe
     assert bool(overlap_issues(report,[])) is expected
 
 
+def test_unrequested_performance_scores_are_not_added_to_mechanism_comparisons():
+    from app.research.comparisons import overlap_issues
+    report={'claims':[{'claim_id':'c','text':'Baseline EM=68.6 versus method EM=41.3.',
+                       'evidence_ids':['e']}], 'limitations':[]}
+    assert overlap_issues(report,[],{'question':'说明方法与可比条件'})
+    assert not overlap_issues(report,[],{'question':'比较相同数据集上的具体数值得分'})
+
+
 def test_hash_bound_bibliography_refreshes_without_upgrading_identity(setup):
     config,payload,papers=setup
     pdf=papers/'study.pdf';digest=hashlib.sha256(pdf.read_bytes()).hexdigest()

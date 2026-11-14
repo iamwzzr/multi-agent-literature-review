@@ -348,7 +348,7 @@ class ThreeAgentWorkflow:
                         checked_claim_ids=[c for r in results for c in r.checked_claim_ids],
                         unchecked_claim_ids=[c for r in results for c in r.unchecked_claim_ids],
                         issues=[i for r in results for i in r.issues])
-                    conflicts=overlap_issues(report,evidence)
+                    conflicts=overlap_issues(report,evidence,task)
                     if conflicts:
                         checked.issues.extend(IssueDraft(**i) for i in conflicts)
                         checked.verdict='revise'
