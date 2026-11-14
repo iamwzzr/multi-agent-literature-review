@@ -5,6 +5,12 @@ from .workspace import identifier
 from ..errors import AppError
 
 
+def scoped_claim_text(claim):
+    """The reader must see the same qualification that the reviewer evaluates."""
+    scope=claim.get('scope','').strip() if claim.get('presentation')!='limitation' else ''
+    return f"适用范围：{scope.rstrip('。.!！')}。{claim['text']}" if scope else claim['text']
+
+
 class EvidenceRegistry:
     def __init__(self, spans, documents, workspace, items, limit=12):
         self.spans,self.documents,self.workspace,self.items,self.limit=spans,documents,workspace,items,limit
@@ -111,7 +117,7 @@ def review_payloads(task,report,evidence,papers,originals,pending,max_chars):
         ids={eid for c in claims for eid in c['evidence_ids']}
         selected=[by_id[eid] for eid in ids if eid in by_id]
         return {'task':task,'report':{k:v for k,v in report.items() if k in
-                ('report_id','report_version','evidence_snapshot_id')} | {'claims':claims},
+                ('report_id','report_version','evidence_snapshot_id')} | {'claims':[dict(c,text=scoped_claim_text(c)) for c in claims]},
             'evidence':[{'evidence_id':e['evidence_id'],'document_id':e['document_id'],
                 'paper_id':e['paper_id'],'location':e['location'],'quote_in_original_windows':True}
                 for e in selected],

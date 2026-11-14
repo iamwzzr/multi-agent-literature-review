@@ -96,6 +96,9 @@ PROMPTS['reviewer'] += (' A scoped conclusion that collected evidence cannot est
     'A synthesis may be a valid deduction from cited equations/premises without verbatim author wording; '
     'audit its premises and inference instead of demanding a literal matching sentence. Unstated assumptions '
     'or extensions beyond the reported model remain blocking.')
+PROMPTS['reviewer'] += (' Claim text includes its publicly displayed scope prefix. Evaluate the qualified proposition '
+    'as a whole; do not treat its qualification as hidden metadata or ignore it. A scope prefix cannot excuse '
+    'a contradiction or an inference not supported within that scope.')
 
 
 class UsageCallback(AsyncCallbackHandler):

@@ -10,7 +10,7 @@ from ..library import SearchIndex, digest_file, normalize, parse_pdf, content_re
 from ..metadata import bibliography
 from ..workflow import phase
 from .agents import ThreeAgents
-from .context import EvidenceRegistry,evidence_view,report_view,history_view,paper_view,review_payloads,original_windows
+from .context import EvidenceRegistry,evidence_view,report_view,history_view,paper_view,review_payloads,original_windows,scoped_claim_text
 from .citations import validate_citations, display_citations, cited_paragraph
 from .contracts import Budget, ResearchOutput, ReportOutput, ReviewOutput, IssueDraft, delivery_allowed, report_contract
 from .comparisons import overlap_issues
@@ -280,7 +280,34 @@ class ThreeAgentWorkflow:
                         if result.outcome=='execution_error':
                             raise AppError('AGENT_FAILED','Researcher 记录了实际执行错误。',503)
                         research_gaps=list(dict.fromkeys(research_gaps+result.unresolved_gaps))
-                        for item in result.evidence:
+                        drafts=list(result.evidence)
+                        invalid=[d for d in drafts if d.span_id not in by_span]
+                        if invalid:
+                            import difflib
+                            candidates={}
+                            for item in invalid:
+                                close=difflib.get_close_matches(item.span_id,list(by_span),n=2,cutoff=.4)
+                                for key in close: candidates[key]=by_span[key]
+                                for chunk in index.search(item.finding,2): candidates[chunk['id']]=chunk
+                            candidates=dict(list(candidates.items())[:12])
+                            for chunk in initial_passages+condition_passages:
+                                if len(candidates)>=12: break
+                                candidates.setdefault(chunk['id'],chunk)
+                            ws.save('span_repair_request',{'invalid_span_ids':[d.span_id for d in invalid],
+                                'candidate_span_ids':list(candidates)})
+                            repaired=await self.agents.invoke('researcher',{'task':task,
+                                'repair_instruction':'Repair only invalid span references using these actual originals. '
+                                    'Read the text; keep only supported findings. Never guess IDs. Return empty evidence with scoped gaps if unsupported.',
+                                'invalid_drafts':[d.model_dump() for d in invalid],
+                                'candidate_originals':list(candidates.values())},ResearchOutput,[],meter)
+                            ws.save('span_repair_result',repaired.model_dump())
+                            if repaired.status=='failed' or repaired.outcome=='execution_error' or repaired.errors:
+                                raise AppError('AGENT_FAILED','片段 ID 纠正未成功，拒绝登记修复结果。',503)
+                            if any(d.span_id not in by_span for d in repaired.evidence):
+                                raise AppError('UNKNOWN_SPAN','片段 ID 纠正后仍无效，拒绝登记证据。',422)
+                            research_gaps.extend(repaired.unresolved_gaps)
+                            drafts=[d for d in drafts if d.span_id in by_span]+list(repaired.evidence)
+                        for item in drafts:
                             card=registry.add(item.span_id,item.finding,item.conditions,item.limitations)
                             if card is None:
                                 limitations.append('本轮证据数量上限已到，额外材料未进入当前证据快照。')
@@ -501,7 +528,7 @@ class ThreeAgentWorkflow:
             if claim.get('presentation')=='limitation':
                 continue
             sections.append({'id': claim['claim_id'], 'heading': headings.get(claim['kind'], claim['kind']),
-                'paragraphs': [cited_paragraph(claim['text'], claim['evidence_ids'], references)]})
+                'paragraphs': [cited_paragraph(scoped_claim_text(claim), claim['evidence_ids'], references)]})
         display_table = [dict(row,
             cells={k: display_citations(v, references) if v is not None else None for k, v in row['cells'].items()},
             conditions={k: display_citations(v, references) if v is not None else None for k, v in row.get('conditions', {}).items()})

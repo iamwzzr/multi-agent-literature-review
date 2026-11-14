@@ -1,6 +1,7 @@
 """Conservative consistency checks, not automatic judgments of scientific truth."""
 import re
 from collections import defaultdict
+from .context import scoped_claim_text
 
 
 def overlap_issues(report,evidence,task=None):
@@ -22,11 +23,13 @@ def overlap_issues(report,evidence,task=None):
                                   r'(?:not|without).*(?:full text|entire paper|appendix)',s,re.I)
                        for s in report.get('limitations',[]))
     for claim in report['claims']:
-        if not quantitative and re.search(r'\b(?:EM|F[-_ ]?1|ROUGE(?:-[A-Z0-9]+)?|BLEU|accuracy)\s*[:=：]?\s*\d+(?:\.\d+)?',claim['text'],re.I):
+        delivered=scoped_claim_text(claim)
+        prose=re.sub(r'\bevidence-[A-Za-z0-9_-]+','',claim['text'])
+        if not quantitative and re.search(r'\b(?:EM|F[-_ ]?1|ROUGE(?:-[A-Z0-9]+)?|BLEU|accuracy)\b\s*[:=：]?\s*\d+(?:\.\d+)?',prose,re.I):
             issues.append({'claim_id':claim['claim_id'],'evidence_ids':claim['evidence_ids'],
                 'owner':'reporter','severity':'blocking','problem':'仅要求机制或可比条件的问题引入了未请求的性能指标数值，增加了表格列错配风险。',
                 'required_fix':'只回答用户要求的机制和可比条件，删除额外的性能得分；不要将展平表格中不同数据集的列直接比较。'})
-        if (limited_reading and not re.search(r'所检查|已检查|已提供的证据|所提供.*(?:片段|证据)|provided excerpts',claim['text'],re.I)
+        if (limited_reading and not re.search(r'所检查|已检查|已提供的证据|所提供.*(?:片段|证据)|所获(?:证据|片段)|仅限.*(?:证据|片段|窗口)|所引(?:证据|片段)|provided excerpts',delivered,re.I)
             and re.search(r'没有任何一篇|没有任何论文|所有论文均未|no (?:paper|study)|none of the (?:papers|studies)',claim['text'],re.I)):
             issues.append({'claim_id':claim['claim_id'],'evidence_ids':claim['evidence_ids'],
                 'owner':'reporter','severity':'blocking','problem':'报告承认未检查完整正文或附录，却作出了整篇论文范围的否定。',

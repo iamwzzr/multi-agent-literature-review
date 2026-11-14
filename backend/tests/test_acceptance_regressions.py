@@ -20,6 +20,46 @@ from test_business import setup, local_client, ScriptedModel, events
 from test_three_agent import Trio
 
 
+@pytest.mark.parametrize('repair_mode',['valid','unknown','failed','execution_error'])
+def test_invalid_spans_get_one_grounded_repair_and_are_never_auto_mapped(setup,repair_mode):
+    config,payload,_=setup
+    class Repair(Trio):
+        async def invoke(self,role,payload,schema,tools,meter):
+            if role=='researcher':
+                if 'repair_instruction' in payload:
+                    assert tools==[] and 1<=len(payload['candidate_originals'])<=12
+                    span=payload['candidate_originals'][0]['id'] if repair_mode!='unknown' else 'still-invented'
+                    if repair_mode=='failed':
+                        return ResearchOutput(status='failed',evidence=[{'span_id':span,'finding':'not successful'}])
+                    if repair_mode=='execution_error':
+                        return ResearchOutput(status='partial',outcome='execution_error',evidence=[{'span_id':span,'finding':'not successful'}])
+                else: span='invented-span-id'
+                return ResearchOutput(status='success',evidence=[{'span_id':span,'finding':'retrieval coverage','conditions':{}}])
+            return await super().invoke(role,payload,schema,tools,meter)
+    with local_client(create_app(config,ScriptedModel(),research_agents=Repair())) as client:
+        response=client.post('/api/v2/reviews/stream',json=payload)
+        last=events(response)[-1]
+        if repair_mode=='valid': assert last['taskStatus']=='completed'
+        else:
+            assert last['type']=='error'
+            assert last['code']==('UNKNOWN_SPAN' if repair_mode=='unknown' else 'AGENT_FAILED')
+
+
+def test_scope_qualification_is_identical_in_review_and_delivery(setup):
+    from app.research.context import scoped_claim_text
+    config,payload,_=setup
+    class Scoped(Trio):
+        async def invoke(self,role,payload,schema,tools,meter):
+            if role=='reviewer':
+                assert all(c['text'].startswith('适用范围：') for c in payload['report']['claims'])
+            return await super().invoke(role,payload,schema,tools,meter)
+    with local_client(create_app(config,ScriptedModel(),research_agents=Scoped())) as client:
+        response=client.post('/api/v2/reviews/stream',json=payload)
+        assert events(response)[-1]['taskStatus']=='completed'
+        report=client.get('/api/v1/runs/'+response.headers['x-run-id']).json()['report']
+        assert report['sections'][0]['paragraphs'][0].startswith(scoped_claim_text(report['claims'][0]))
+
+
 @pytest.mark.parametrize('assessment,covered,expected_research,expected_status',[
     ('optional',True,1,'completed'),('required',True,2,'partial'),
     ('missing',True,2,'partial'),('optional',False,2,'partial')])
@@ -307,6 +347,17 @@ def test_unrequested_performance_scores_are_not_added_to_mechanism_comparisons()
                        'evidence_ids':['e']}], 'limitations':[]}
     assert overlap_issues(report,[],{'question':'说明方法与可比条件'})
     assert not overlap_issues(report,[],{'question':'比较相同数据集上的具体数值得分'})
+
+
+@pytest.mark.parametrize('text,blocked',[
+    ('使用 Llama2 7B [evidence-f15ad2695e9d41bda62141255b1b69d8]。',False),
+    ('只说明 F1 指标 [evidence-f1999]。',False),
+    ('F1=42.3 [evidence-f1999]。',True),
+    ('ROUGE-L 30.5。',True)])
+def test_metric_detection_does_not_interpret_citation_ids_as_scores(text,blocked):
+    from app.research.comparisons import overlap_issues
+    report={'claims':[{'claim_id':'c','text':text,'evidence_ids':['evidence-f1999']}], 'limitations':[]}
+    assert bool(overlap_issues(report,[],{'question':'说明模型和可比条件'})) is blocked
 
 
 @pytest.mark.parametrize('category,expected',[('factual','blocking'),('citation','blocking'),('style','warning')])
