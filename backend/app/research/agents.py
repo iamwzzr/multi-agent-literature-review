@@ -81,7 +81,9 @@ PROMPTS['researcher'] += (' condition_passages are additional original text sele
 PROMPTS['reporter'] += (' conditions_preview is a bounded extraction, not independently verified evidence. '
     'Every model name, baseline restriction and dataset claim must be supported by its associated quotation. '
     'When correcting an issue, read previous_report.claims[].text for needs_correction claims; '
-    'fix that exact statement and avoid adding new background details. If a detail is unnecessary and unsupported, omit it.')
+    'fix that exact statement and avoid adding new background details. If a detail is unnecessary and unsupported, omit it. '
+    'If reviewer_evidence_ids are supplied, find those newly registered originals in evidence. Cite the matching IDs '
+    'when retaining and correcting a disputed claim or table cell, update its scope, and remove satisfied evidence requests.')
 PROMPTS['reviewer'] += (' Assess EVERY requested_evidence request by its program-assigned request_id. '
     'necessary=true means the evidence is required to answer the actual question or support an indispensable claim; '
     'optional numeric settings, extra experiments and unrelated expansions are not necessary for a scoped mechanism answer. '

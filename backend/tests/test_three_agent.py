@@ -72,6 +72,82 @@ def test_targeted_owner_routing(setup,owner,expected):
         assert trio.roles.count('reporter')==2
 
 
+@pytest.mark.parametrize('feedback_batches', [0, 1])
+def test_reviewer_original_is_citable_in_report_revision(setup, feedback_batches):
+    from pypdf import PdfWriter
+
+    config, payload, papers = setup
+    supplement = 'The method masks uncertain terms or generates questions to construct its retrieval query.'
+    second_page = papers.parent / 'second-page.pdf'
+    make_pdf(second_page, supplement)
+    with PdfWriter() as writer:
+        writer.append(papers / 'study.pdf')
+        writer.append(second_page)
+        writer.write(papers / 'study.pdf')
+    payload['question'] = 'Compare retrieval methods in a comparison table.'
+    payload['research_budget'] = {'feedback_batches': feedback_batches}
+
+    class HandoffAgents:
+        def __init__(self):
+            self.roles = []
+
+        async def invoke(self, role, data, schema, tools, meter):
+            meter.charge('model', role)
+            self.roles.append(role)
+            if role == 'researcher':
+                first = next(span for span in data['initial_passages'] if span['page'] == 1)
+                return schema(status='success', evidence=[{
+                    'span_id': first['id'], 'finding': 'Retrieval improved coverage.', 'conditions': {},
+                }])
+            if role == 'reporter':
+                if data['previous_report']:
+                    evidence_id, = data.get('reviewer_evidence_ids', [])
+                    evidence = next(item for item in data['evidence'] if item['evidence_id'] == evidence_id)
+                    assert evidence['location']['page'] == 2
+                    assert evidence['quote'] == supplement
+                    finding = 'The retrieval query masks uncertain terms or uses generated questions.'
+                else:
+                    evidence_id = data['evidence'][0]['evidence_id']
+                    finding = 'The retrieval query always uses the unchanged input.'
+                return schema(status='success',
+                    claims=[{'text': finding, 'kind': 'finding', 'scope': '', 'evidence_ids': [evidence_id]}],
+                    comparison_table=[{'cells': {'Query construction': finding}, 'evidence_ids': [evidence_id]}])
+            claims = data['report']['claims']
+            issues = []
+            if data['report']['report_version'] == 1:
+                doc = data['evidence'][0]['document_id']
+                read = next(tool for tool in tools if tool.name == 'read_original')
+                for _ in range(2):
+                    original = await read.ainvoke({'document_id': doc, 'page': 2})
+                    assert original['status'] == 'ok'
+                    assert original['data'][0]['windows'][0]['text'] == supplement
+                issues.append({'claim_id': claims[-1]['claim_id'], 'owner': 'reporter',
+                    'severity': 'blocking', 'problem': 'The table misstates the query mechanism.',
+                    'required_fix': 'Cite the method on page 2 and correct the comparison.'})
+            return schema(status='success', verdict='revise' if issues else 'pass', issues=issues,
+                checked_claim_ids=[claim['claim_id'] for claim in claims], unchecked_claim_ids=[],
+                question_covered=True)
+
+    agents = HandoffAgents()
+    with local_client(create_app(config, ScriptedModel(), research_agents=agents)) as client:
+        response = client.post('/api/v2/reviews/stream', json=payload)
+        expected = 'completed' if feedback_batches else 'partial'
+        assert events(response)[-1]['taskStatus'] == expected
+        run = client.get('/api/v1/runs/' + response.headers['x-run-id']).json()
+        snapshots = [item['payload']['evidence_ids'] for item in run['artifacts']
+                     if item['kind'] == 'evidence_snapshot']
+        assert [len(ids) for ids in snapshots] == ([1, 2] if feedback_batches else [1])
+        if feedback_batches:
+            assert agents.roles == ['researcher', 'reporter', 'reviewer', 'reporter', 'reviewer']
+            report = run['report']
+            cited, = report['evidence']
+            assert cited['evidenceId'] not in snapshots[0] and cited['evidenceId'] in snapshots[1]
+            assert report['comparison_table'][0]['evidence_ids'] == [cited['evidenceId']]
+            assert report['review']['reviewed_evidence_snapshot_id'] == report['evidence_snapshot_id']
+            location = client.get(f"/api/v2/projects/project-1/evidence/{cited['evidenceId']}/location").json()
+            assert location['status'] == 'matched' and location['page'] == 2
+
+
 def test_reporter_evidence_request_and_feedback_limit(setup):
     config,payload,_=setup
     payload['research_budget']={'feedback_batches':1}

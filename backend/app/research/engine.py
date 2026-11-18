@@ -125,19 +125,34 @@ class ThreeAgentWorkflow:
                             'text': parsed['pages'][page-1], 'content_hash': actual,
                             'adjacent_pages':adjacent}, 'error': None}
 
-                @tool
-                async def read_original(document_id: str, page: int, span_id: str | None = None,
-                                        evidence_id: str | None = None) -> dict:
-                    """Read bounded freshly parsed original passages. Prefer evidence_id for an evidence card or span_id for a registered source span. Full pages stay local."""
-                    if document_id not in documents:
-                        matches=[d['document_id'] for d in documents.values() if d['paper_id']==document_id]
-                        if len(matches)==1:document_id=matches[0]
-                    original=await load_original_page(document_id,page)
-                    if original['status']!='ok':return original
-                    items,error=select_original_items({**by_span,**registry.extra_spans},evidence,
-                        document_id,page,span_id,evidence_id)
-                    if error:return {'status':'error','data':None,'error':{'code':error}}
-                    return {'status':'ok','data':original_windows([original],items),'error':None}
+                review_read_spans: dict[str, None] = {}
+
+                def original_reader(collect_review_spans=False):
+                    @tool
+                    async def read_original(document_id: str, page: int, span_id: str | None = None,
+                                            evidence_id: str | None = None) -> dict:
+                        """Read bounded freshly parsed original passages. Prefer evidence_id for an evidence card or span_id for a registered source span. Full pages stay local."""
+                        if document_id not in documents:
+                            matches = [d['document_id'] for d in documents.values() if d['paper_id'] == document_id]
+                            if len(matches) == 1:
+                                document_id = matches[0]
+                        original = await load_original_page(document_id, page)
+                        if original['status'] != 'ok':
+                            return original
+                        spans = {**by_span, **registry.extra_spans}
+                        items, error = select_original_items(spans, evidence, document_id, page, span_id, evidence_id)
+                        if error:
+                            return {'status': 'error', 'data': None, 'error': {'code': error}}
+                        windows = original_windows([original], items)
+                        if collect_review_spans:
+                            # Citation cards are already registered. Retain only the actual source spans read.
+                            review_read_spans.update(dict.fromkeys(item['evidence_id'] for item in items
+                                                                  if item['evidence_id'] in spans))
+                        return {'status': 'ok', 'data': windows, 'error': None}
+                    return read_original
+
+                read_original = original_reader()
+                review_read_original = original_reader(collect_review_spans=True)
 
                 @tool
                 def query_evidence(evidence_id: str | None = None) -> dict:
@@ -224,6 +239,7 @@ class ThreeAgentWorkflow:
                 researcher_tools=[search_document,read_original,record_evidence,query_evidence,list_project_papers,get_paper_record,get_verification_log]
                 if request.source_mode!='local': researcher_tools.extend([search_verified_papers,fetch_paper_content])
                 pending, feedback = [], 0
+                revision_evidence_ids = []
                 need_research = True
                 while True:
                     if need_research:
@@ -351,10 +367,13 @@ class ThreeAgentWorkflow:
                         for p in papers if any(e['paper_id']==p['paper_id'] for e in evidence)],
                         'evidence_count':len(evidence), 'is_exhaustive_library_audit':False}
                     ws.save('report_scope',{'snapshot_id':snapshot_id, **task['execution_scope']})
-                    written = await self.agents.invoke('reporter', {'task': task, 'papers': paper_view(papers),
+                    reporter_payload = {'task': task, 'papers': paper_view(papers),
                         'evidence': evidence_view(evidence), 'previous_report': report_view(report,[i.get('claim_id') for i in pending]), 'issues': pending,
                         'research_gaps':research_gaps,
-                        'history': history_view(request.history)},
+                        'history': history_view(request.history)}
+                    if revision_evidence_ids:
+                        reporter_payload['reviewer_evidence_ids'] = revision_evidence_ids
+                    written = await self.agents.invoke('reporter', reporter_payload,
                         report_contract(task), [query_evidence, read_original, get_paper_record, read_report_claim], meter)
                     if written.status == 'failed':
                         raise AppError('AGENT_FAILED', 'Reporter 执行失败。', 503)
@@ -399,6 +418,7 @@ class ThreeAgentWorkflow:
                         originals.append(await load_original_page(document_id,page))
                     # Keep original pages intact; split the audit by claims instead of truncating source text.
                     results = []
+                    feedback_source_spans: dict[str, None] = {}
                     for batch_number, review_payload in enumerate(review_payloads(task,report,evidence,papers,originals,pending,self.config.max_prompt_chars-2000),1):
                         batch_id = f"{report['report_id']}-batch-{batch_number}"
                         review_payload['batch_id'] = batch_id
@@ -409,10 +429,11 @@ class ThreeAgentWorkflow:
                         schema = review_contract(review_payload)
                         result = None
                         for attempt in range(2):
+                            review_read_spans.clear()
                             ws.save('review_batch_input',{'batch_id':batch_id,'attempt':attempt+1,'payload':review_payload})
                             try:
                                 returned = await self.agents.invoke('reviewer',review_payload,
-                                    schema,[read_original,query_evidence,get_paper_record,get_verification_log,read_report_claim],meter)
+                                    schema,[review_read_original,query_evidence,get_paper_record,get_verification_log,read_report_claim],meter)
                                 ws.save('review_batch_output',{'batch_id':batch_id,'attempt':attempt+1,
                                     'report_version':report['report_version'],'result':returned.model_dump()})
                                 result = schema.model_validate(returned.model_dump())
@@ -425,6 +446,9 @@ class ThreeAgentWorkflow:
                                 ws.save('review_batch_invalid',{'batch_id':batch_id,'reason':error.code})
                                 break
                         result = result or incomplete_batch(review_payload,'INVALID_REVIEW_BATCH')
+                        if any(issue.severity == 'blocking' for issue in result.issues) or any(
+                                assessment.necessary for assessment in result.request_assessments):
+                            feedback_source_spans.update(review_read_spans)
                         ws.save('review_batch_result',{'batch_id':batch_id,'report_version':report['report_version'],
                             'claim_ids':[c['claim_id'] for c in review_payload['report']['claims']],
                             'evidence_ids':[e['evidence_id'] for e in review_payload['evidence']],
@@ -484,6 +508,18 @@ class ThreeAgentWorkflow:
                         break
                     pending = [i for i in review['issues'] if i['severity']=='blocking']+[{'issue_id':identifier('issue'),'owner':'researcher',
                         'problem':q['question'],'required_fix':q['question'],'status':'open'} for q in required_requests]
+                    revision_evidence_ids = []
+                    if pending and feedback_source_spans:
+                        # The reviewed snapshot stays immutable. New originals belong to the next draft.
+                        for span_id in feedback_source_spans:
+                            card = registry.add(span_id, 'Original passage located during review for this revision.', {})
+                            if card is None:
+                                break
+                            if card['evidence_id'] not in allowed_ids:
+                                revision_evidence_ids.append(card['evidence_id'])
+                        ws.save('review_evidence_handoff', {'from_snapshot_id': snapshot_id,
+                            'next_report_version': report['report_version'] + 1,
+                            'source_span_ids': list(feedback_source_spans), 'evidence_ids': revision_evidence_ids})
                     for issue in pending:
                         ws.save('issue_response', dict(issue, status='addressed', next_report_version=report['report_version']+1))
                     need_research = any(i['owner'] == 'researcher' for i in pending) or bool(checked.unchecked_claim_ids)
