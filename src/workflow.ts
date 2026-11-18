@@ -107,3 +107,16 @@ export const reviewFlows = {
   revision: reviewPhases,
   followUp: followUpPhases,
 }
+
+// Keep transport IDs unchanged; search and analysis share one model agent.
+export const displayAgents = [
+  { ...agents[1], name: 'Researcher', role: '检索与分析', task: '检索论文并整理原文证据', members: ['search', 'analysis'] as AgentId[] },
+  { ...agents[3], name: 'Reporter', role: '综述撰写', members: ['writing'] as AgentId[] },
+  { ...agents[4], name: 'Reviewer', role: '审核与核验', members: ['verification'] as AgentId[] },
+]
+export function displayAgentStatus(agent: typeof displayAgents[number], phase?: AgentActivity) {
+  if (agent.members.some(id => phase?.working.includes(id))) return 'working'
+  if (agent.id === 'verification' && phase?.feedback) return 'feedback'
+  if (agent.members.some(id => phase?.done.includes(id))) return 'done'
+  return 'waiting'
+}

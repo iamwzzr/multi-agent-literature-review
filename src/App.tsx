@@ -1,3 +1,4 @@
+import { Sources } from './Sources'
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { Archive, ArchiveRestore, Building2, ChevronRight, FileText, PanelLeft } from 'lucide-react'
 import { BackendRequestError, deleteBackendConversation, getBackendRun, maxKnowledgePaths, maxReferences, readBackendSettings, reviewRequest, saveBackendSettings, streamBackendReview, validateProject } from './backend'
@@ -43,6 +44,7 @@ function runPhase(run?: PendingRun) {
 export function App() {
   const sidebarInline = useMediaQuery('(width > 820px)')
   const inspectorInline = useMediaQuery('(width > 1120px)')
+  const [uploadBusy, setUploadBusy] = useState(false)
   const [backend, setBackend] = useState(readBackendSettings)
   const [workspace, setWorkspace] = useState(readWorkspace)
   const [recoverableRuns, setRecoverableRuns] = useState(readRecoverableRuns)
@@ -376,7 +378,7 @@ export function App() {
     const controller = new AbortController()
     backendRequests.current.set(review.id, controller)
     const projectId = project.id
-    let current: ReviewRun = { ...review, sections: [], evidence: [], reply: undefined, runId: undefined }
+    let current: ReviewRun = { ...review, sections: [], evidence: [], reply: undefined, runId: undefined, taskStatus: undefined, audit: undefined, verification: undefined }
     showRun({ projectId, review: current, kind: 'connecting' })
 
     try {
@@ -522,12 +524,14 @@ export function App() {
   }
 
   const composer = (
+    <>
+    <Sources key={project.id + backend.url} projectId={project.id} backend={backend} busy={busy} onUploadBusy={setUploadBusy} />
     <Composer
       key={viewKey}
       input={input}
       question={question}
       followUp={Boolean(activeReview)}
-      busy={busy}
+      busy={busy || uploadBusy}
       demo={!useBackend}
       knowledgeCount={project.knowledgePaths.length}
       conversations={availableConversations}
@@ -541,6 +545,7 @@ export function App() {
       onLibrary={() => navigate({ kind: 'library' })}
       onStop={busy && activeReview?.source === 'backend' ? () => backendRequests.current.get(activeReview.id)?.abort() : undefined}
     />
+    </>
   )
 
   return (

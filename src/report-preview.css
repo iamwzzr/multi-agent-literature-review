@@ -309,3 +309,25 @@
     outline: none;
   }
 }
+
+.report-warning{border-left:3px solid #b57b20;padding:10px 14px;background:#fff6df;color:#624619;overflow-wrap:anywhere}.report-document table{border-collapse:collapse;font-size:12px;width:100%}.report-document th,.report-document td{text-align:left;vertical-align:top;border:1px solid #ddd;padding:8px;min-width:90px}@media print{.report-warning{display:block!important;border:2px solid #444;color:#111;background:white}.report-document table{font-size:10px}.report-document td{min-width:0;overflow-wrap:anywhere}}
+
+.comparison-table-scroll { overflow-x: auto; }
+@media print {
+  html:has(.report-preview[open]), body:has(> .report-preview[open]) {
+    width: auto !important; min-width: 0 !important; height: auto !important;
+    max-height: none !important; overflow: visible !important;
+  }
+  .page-dialog.report-preview[open], .report-preview-reader, .report-document {
+    box-sizing: border-box; width: 100% !important; min-width: 0 !important;
+    max-width: 100% !important; height: auto !important; max-height: none !important;
+    overflow: visible !important;
+  }
+  .comparison-table-scroll { width: 100%; overflow: visible !important; }
+  .report-document table { table-layout: fixed; width: 100%; }
+  .report-document th, .report-document td {
+    min-width: 0 !important; white-space: normal; overflow-wrap: anywhere;
+  }
+  .report-document thead { display: table-header-group; }
+  .report-document tr, .report-warning { break-inside: avoid; }
+}

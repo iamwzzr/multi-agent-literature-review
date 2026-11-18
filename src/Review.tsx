@@ -1,3 +1,5 @@
+import { AuditSummary } from './AuditSummary'
+import { ComparisonTable, reportWarning } from './ReportPreview'
 import { memo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { ArrowUpRight, AtSign, BadgeCheck, BookOpen, Check, ChevronDown, ChevronRight, CircleAlert, FileText, FlaskConical, FolderOpen, History, Info, ListChecks, MessageSquareText, NotebookPen, RotateCw, Settings, Workflow } from 'lucide-react'
@@ -5,7 +7,7 @@ import { testPrompts, verificationLabels } from './demo'
 import type { ReviewRun, ReviewTurn } from './demo'
 import type { ReviewFailure } from './reviewFailure'
 import { citationParts, visibleParagraph } from './response'
-import { agents } from './workflow'
+import { agents, displayAgents, displayAgentStatus } from './workflow'
 import type { AgentActivity } from './workflow'
 
 const followUpSuggestions = [
@@ -136,7 +138,7 @@ export function Review({ review, conversations, runningPhase, responding, connec
   const followUp = history.length > 0
   const demo = review.source !== 'backend'
   const backendComplete = !demo && !runningPhase && !responding && !connecting && !error
-  const needsReview = review.verification === 'with_warnings' || review.verification === 'no_evidence'
+  const needsReview = (review.taskStatus !== undefined && review.taskStatus !== 'completed') || review.verification === 'with_warnings' || review.verification === 'no_evidence'
   const failedAgent = error?.agent ? agents.find(({ id }) => id === error.agent) : undefined
   let workflowStatus = demo ? '流程示例' : '综述已完成'
   if (error) workflowStatus = error.informational ? error.title : '本轮未完成'
@@ -144,6 +146,8 @@ export function Review({ review, conversations, runningPhase, responding, connec
   else if (runningPhase) workflowStatus = runningPhase.title
   else if (responding) workflowStatus = '流式响应中'
   else if (review.reportUnchanged) workflowStatus = '回复完成'
+  else if (review.taskStatus === 'blocked') workflowStatus = '任务受阻'
+  else if (review.taskStatus === 'partial') workflowStatus = '部分草稿 · 未通过最终审核'
   else if (review.verification) workflowStatus = verificationLabels[review.verification]
   else if (review.mockVerified) workflowStatus = followUp ? '模拟修订完成' : review.mockFlow === 'direct' ? '模拟核查通过' : '模拟复核完成'
 
@@ -176,23 +180,26 @@ export function Review({ review, conversations, runningPhase, responding, connec
           </div>
         </>
       )}
+      <p role="status" className="report-warning">{reportWarning(review)}</p>
+      <ComparisonTable turn={review} onCitation={(index,trigger)=>onCitation(history.length,index,trigger)}/>
+      <AuditSummary turn={review}/>
       <ConversationLinks turn={review} conversations={conversations} onConversation={onConversation} />
 
       <section className="workflow" aria-label="Agent 协作流程">
         <button className="workflow-toggle" type="button" aria-expanded={workflowOpen} aria-controls="workflow-steps" onClick={() => setWorkflowOpen((open) => !open)}>
           <span className="workflow-icon"><Workflow size={17} /></span>
-          <span className="workflow-label">Agent 协作流程<small>{agents.length} 个角色</small></span>
+          <span className="workflow-label">Agent 协作流程<small>3 个 Agent · 程序协调</small></span>
           <span className="workflow-status" aria-live="polite">{backendComplete && needsReview ? <CircleAlert size={14} />
             : (review.mockVerified || backendComplete) && <Check size={14} />}{workflowStatus}</span>
           <ChevronDown className="workflow-chevron" size={15} />
         </button>
         <ol className="workflow-steps" id="workflow-steps" hidden={!workflowOpen}>
-          {agents.map(({ id, name, task, icon: Icon }) => (
-            <li key={id} data-working={runningPhase?.working.includes(id)} data-failed={error?.agent === id}>
+          {displayAgents.map((agent) => { const {id,name,task,icon:Icon} = agent; return (
+            <li key={id} data-working={displayAgentStatus(agent, runningPhase) === 'working'} data-failed={error?.agent === id}>
               <Icon className="step-icon" size={15} />
               <span><strong>{name}</strong><small>{task}</small></span>
             </li>
-          ))}
+          )})}
         </ol>
       </section>
       {error && (

@@ -30,6 +30,8 @@ export const verificationLabels = {
 } as const
 
 export type ReviewTurn = {
+  taskStatus?: string
+  audit?: Record<string, unknown>
   question: string
   referenceIds?: string[]
   evidence: Evidence[]
@@ -50,8 +52,8 @@ export type ReviewRun = ReviewTurn & {
   mockFlow?: 'direct'
 }
 
-export function lastTurn({ question, referenceIds, evidence, sections, reply, reportUnchanged, verification }: ReviewRun): ReviewTurn {
-  return { question, referenceIds, evidence, sections, reply, reportUnchanged, verification }
+export function lastTurn({ question, referenceIds, evidence, sections, reply, reportUnchanged, verification, taskStatus, audit }: ReviewRun): ReviewTurn {
+  return { question, referenceIds, evidence, sections, reply, reportUnchanged, verification, taskStatus, audit }
 }
 
 const tracing: Paper = {

@@ -2569,3 +2569,7 @@ kbd {
     outline: 2px solid Highlight;
   }
 }
+
+.source-controls{max-width:760px;margin:12px auto;padding:12px 20px;font-size:13px}.source-controls fieldset{display:flex;gap:16px;border:0;padding:0}.source-controls p{color:#666;font-size:12px}.source-controls input{margin:6px}td{padding:12px;border-bottom:1px solid #ddd;min-width:130px}
+
+.source-controls{width:100%;max-height:32vh;overflow:auto;flex-shrink:0;box-sizing:border-box}.source-controls fieldset{flex-wrap:wrap}.source-controls label{display:inline-flex;align-items:center;min-height:36px;gap:5px}.source-controls .source-query,.source-controls .source-upload{display:flex;flex-wrap:wrap;margin:8px 0}.source-query input{flex:1;min-width:120px;border:1px solid var(--border);padding:8px;background:var(--surface);color:var(--text)}.source-upload{border:1px dashed var(--border);padding:8px}.audit-summary{margin:20px 0;padding:16px;border:1px solid var(--border);overflow-wrap:anywhere}.audit-summary dl{display:grid;grid-template-columns:90px minmax(0,1fr);gap:8px}.audit-summary dd{margin:0}.audit-summary h2{font-size:16px}.audit-summary h3{font-size:14px}@media(max-width:620px){.source-controls{padding:8px 16px;margin:0;max-height:26vh}.source-controls fieldset{gap:8px}.source-controls p{margin:5px 0}.source-upload input{max-width:100%}}

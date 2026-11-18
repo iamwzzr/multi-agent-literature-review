@@ -12,7 +12,7 @@ Given a research question and local, online, or mixed paper sources, the system 
 - **Reporter** synthesizes scoped claims and comparison rows, and identifies evidence gaps.
 - **Reviewer** rereads source passages and checks claims, citations, comparison conditions, and inference scope.
 
-Ordinary Python code handles routing, permissions, budgets, and version gates. The current frontend still shows five legacy activity desks; the three-agent UI integration is pending.
+Ordinary Python code handles routing, permissions, budgets, and version gates. The integrated frontend displays three agents while retaining compatible activity IDs for the transport protocol.
 
 ## Collaboration
 
@@ -22,14 +22,14 @@ Important claims will link back to specific papers and PDF pages. The final outp
 
 ## Scope and Status
 
-- The backend supports local PDFs, online arXiv discovery with identity/PDF checks, and hybrid evidence collection. The current frontend defaults to local mode; mode selection and upload controls are pending.
+- The backend supports local PDFs, online arXiv discovery with identity/PDF checks, and hybrid evidence collection. The integrated frontend defaults to local mode and provides local/online/hybrid selection and PDF upload controls.
 - Cloud model APIs may receive selected paper excerpts; local retrieval does not mean fully offline processing.
 - API credentials and paper files must not be committed to this repository.
 - This branch includes the frontend and a Python 3.14 backend for local PDF evidence retrieval, multi-agent synthesis, verification, bounded follow-up, and reviewed report streaming. Real-model acceptance requires local API credentials and papers.
 
 ## Frontend Prototype
 
-Folio is a React, TypeScript, and Vite workspace with a centered research prompt and an office showing the five Agents. It streams reports and opens an evidence panel from numbered citations. New research questions use the configured backend by default. The home page test cards and the optional demo mode use local fixtures.
+Folio is a React, TypeScript, and Vite workspace with a centered research prompt and an office showing Researcher, Reporter, and Reviewer. It streams reports and opens an evidence panel from numbered citations. New research questions use the configured backend by default. The home page test cards and the optional demo mode use local fixtures.
 
 Open **设置 → 后端连接** to test and save the service address. The default is `http://localhost:35549`. The [backend handoff and API contract](docs/backend-api.md) describes the work, request and response formats, and integration checks.
 
@@ -84,3 +84,7 @@ The [100-paper corpus and capability evaluation](docs/testing/AGENT_CAPABILITY_1
 Implementation and API: [THREE_AGENT_V1.md](docs/THREE_AGENT_V1.md). Design baseline: [DESIGN.md](DESIGN.md). Actual acceptance and unexecuted experiments: [EVALUATION.md](EVALUATION.md). The backend now defaults to three LangChain agents; source modes are local/online/hybrid. Frontend source files were not modified for this upgrade.
 
 Actual validation: 69 backend tests passed and a focused real-model task completed with review pass. Several low-budget multi-paper samples remain partial; full product acceptance and comparative quality/cost experiments are pending. See [the test report](docs/BACKEND_TEST_REPORT_2026-11-14.md) and [frontend integration / local corpus preparation](docs/FRONTEND_V1_HANDOFF.md).
+
+## Integrated teammate updates (2026-11-18)
+
+This checkout combines backend/corpus work from `work/corpus-100-evaluation` (441f7ba) with the V1 frontend from `LIKeqing` (68e863c). The frontend includes source selection, PDF upload, three-agent activity, audit status, comparison tables and exports. See [frontend implementation](docs/FRONTEND_V1_IMPLEMENTATION.md). Original design-stage documentation is retained in [DESIGN.md](DESIGN.md); it is not the current implementation status. End-to-end acceptance of this newly combined version remains separate from each branch's recorded tests.
