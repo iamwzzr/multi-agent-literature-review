@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     model_name: str = ""
     model_base_url: str = "https://api.openai.com/v1"
     model_json_mode: bool = True
+    model_trust_env: bool = True
     model_reasoning_effort: str = ""
     model_token_parameter: Literal['max_completion_tokens', 'max_tokens'] = 'max_completion_tokens'
     model_timeout_seconds: float = Field(default=90, ge=1, le=300)

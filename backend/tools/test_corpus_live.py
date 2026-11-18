@@ -23,17 +23,21 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--live',action='store_true',required=True,help='Make paid model calls')
     parser.add_argument('--suite', choices=('fixed','corpus-100'), default='fixed')
+    parser.add_argument('--case-file',help='Optional local regression case JSON; gold checks are never sent to agents')
+    parser.add_argument('--tool-calls',type=int,default=100)
     parser.add_argument('--cases',help='Comma-separated case IDs; defaults to all cases in the selected suite')
     parser.add_argument('--base-url',default='http://127.0.0.1:35549')
     parser.add_argument('--model-calls',type=int,default=24)
+    parser.add_argument('--project-id',help='Reuse one project for sequential cases and its local index cache')
     parser.add_argument('--seconds',type=int,default=300)
     args=parser.parse_args()
-    if not 1<=args.model_calls<=60 or not 1<=args.seconds<=600:
+    if not 1<=args.model_calls<=60 or not 1<=args.seconds<=600 or not 1<=args.tool_calls<=150:
         parser.error('Budget out of bounds')
     if not settings.model_api_key.get_secret_value() or not settings.model_name:
         parser.error('Configure local .env MODEL_API_KEY and MODEL_NAME; never commit credentials')
     full_suite = args.suite == 'corpus-100'
     case_file = ROOT/'docs/testing'/('agent-capability-cases.json' if full_suite else 'cases.json')
+    if args.case_file:case_file=Path(args.case_file).resolve()
     cases=json.loads(case_file.read_text(encoding='utf-8'))['cases']
     wanted=args.cases.split(',') if args.cases else [case['id'] for case in cases]
     if not set(wanted)<={c['id'] for c in cases}: parser.error('Unknown case ID')
@@ -51,17 +55,17 @@ def main():
     if settings.access_token.get_secret_value():
         headers['Authorization']='Bearer '+settings.access_token.get_secret_value()
     summary={'executed_at':datetime.now(timezone.utc).isoformat(),'model':settings.model_name,
-             'base_url':settings.model_base_url,'budget':{'model_calls_per_case':args.model_calls,'seconds_per_case':args.seconds},
+             'base_url':settings.model_base_url,'budget':{'model_calls_per_case':args.model_calls,'seconds_per_case':args.seconds,'tool_calls_per_case':args.tool_calls},
              'model_max_tokens':settings.model_max_tokens,'reasoning_effort':settings.model_reasoning_effort,
              'git_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
              'source_sha256':{str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest()
                               for p in (ROOT/'backend/app').rglob('*.py')},
              'working_tree_dirty':bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip()),
              'requirements_sha256':hashlib.sha256((ROOT/'backend/requirements.txt').read_bytes()).hexdigest(),
-             'suite': args.suite, 'case_file_sha256':hashlib.sha256(case_file.read_bytes()).hexdigest(),
+             'suite': args.suite,'shared_project_id':args.project_id, 'case_file_sha256':hashlib.sha256(case_file.read_bytes()).hexdigest(),
              'corpus_sha256':{k:p['sha256'] for k,p in by_key.items()},'results':[]}
     def save(name,value):
-        (out/(name+'.json')).write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n')
+        (out/(name+'.json')).write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     print('RESULTS',out,flush=True)
     with httpx.Client(base_url=args.base_url,headers=headers,timeout=650,trust_env=False) as client:
         client.get('/api/v1/health').raise_for_status()
@@ -81,12 +85,12 @@ def main():
                 assert {p.name for p in library.glob('*.pdf')}=={by_key[k]['filename'] for k in case['keys']}, 'Unexpected extra case PDFs'
             document_budget = 10 if full_suite else 3
             request={'conversationId':case_id+'-'+uuid4().hex,
-                     'project':{'id':args.suite+'-'+timestamp+'-'+case_id,'name':args.suite+' '+case_id,
+                     'project':{'id':args.project_id or args.suite+'-'+timestamp+'-'+case_id,'name':args.suite+' '+case_id,
                                 'workingDirectory':str(ROOT),'knowledgePaths':[str(library)]},
                      'question':case['question'],'source_mode':'local','architecture':'three_agent',
-                     'output_requirements':{'language':'zh-CN','max_claims':3},
+                     'output_requirements':case.get('output_requirements',{'language':'zh-CN','max_claims':3}),
                      'research_budget':{'documents':document_budget,'feedback_batches':1,'model_calls':args.model_calls,
-                                       'tool_calls':100,'seconds':args.seconds}}
+                                       'tool_calls':args.tool_calls,'seconds':args.seconds}}
             if 'subquestions' in case:
                 request['subquestions']=[{'question':q} for q in case['subquestions']]
             started=time.monotonic();events=[];run_id=None;data=None
@@ -109,7 +113,7 @@ def main():
                           'verification: '+str(report.get('verification'))]
                 for section in report.get('sections',[]):
                     markdown.extend(['\n## '+section['heading'],*section['paragraphs']])
-                (out/(case_id+'.md')).write_text('\n\n'.join(markdown)+'\n')
+                (out/(case_id+'.md')).write_text('\n\n'.join(markdown)+'\n',encoding='utf-8')
                 assert events and events[-1]['type']=='done','Stream did not finish normally'
                 displayed=json.dumps(report.get('sections',[]),ensure_ascii=False)
                 numbers=[int(n) for n in re.findall(r'\[\[(\d+)\]\]',displayed)]

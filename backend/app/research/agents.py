@@ -1,4 +1,5 @@
 import json
+import httpx
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy, StructuredOutputError
 from langgraph.errors import GraphRecursionError
@@ -30,9 +31,9 @@ def repair_single_comparison_row(schema, candidate):
         return None
 
 PROMPTS = {
-    'researcher': 'Work concisely: initial_passages already contain original text. Return evidence drafts directly using known span IDs; do not also register the same evidence via record_evidence. Prefer 2-4 focused passages. Read more only to resolve a specific gap. Read original passages. Extract findings and explicitly reported experimental conditions. Return only existing span IDs. Do not write a report or assign identity status. Report gaps precisely.',
+    'researcher': 'For each EvidenceDraft, optionally supply quote as an exact, contiguous 20-1600 character original substring focused on the finding. Never paraphrase inside quote. Leave quote null to retain the full registered passage when uncertain. Work concisely: initial_passages already contain original text. Return evidence drafts directly using known span IDs; do not also register the same evidence via record_evidence. Prefer 2-4 focused passages. Read more only to resolve a specific gap. Read original passages. Extract findings and explicitly reported experimental conditions. Return only existing span IDs. Do not write a report or assign identity status. Report gaps precisely.',
     'reporter': 'Respect output_requirements.max_claims and answer only the requested question. Existing evidence contains full quotations. Avoid re-reading the same evidence. Unreported information should remain unknown; ask for follow-up only when a concrete additional passage is likely to resolve a specific question, not merely because the answer is unknown. Write evidence-grounded claims, a structured comparison_table, limitations and specific evidence_requests. Use only registered evidence IDs. Distinguish finding, synthesis and proposal. Compare datasets, models, metrics and budgets before ranking results. Scope conclusions. List supporting IDs in evidence_ids. Inline [evidence-ID] references must be included in that claim or row evidence_ids. Never assign numeric [[n]] citation numbers; the program assigns display numbers. Treat unreported conditions as null. Do not invent original text.',
-    'reviewer': 'The original_pages windows are actual freshly reread source passages, not summaries. Use these directly and call tools only when their context is insufficient. Audit EVERY claim AND comparison table against read_original, not researcher summaries. Check factual support, experiment comparability and scope. Mark errors owner=researcher for source/extraction gaps, owner=reporter for wording, inference or citation misuse. Return revise for errors, undetermined for incomplete checks, pass only after checking all claims. Checking and finding errors is successful execution. Do not assign versions or change evidence.',
+    'reviewer': 'Internal evidence IDs in drafts are expected; the program assigns display citations. Do not flag IDs alone as a citation/style defect. A freshly read bounded original window is valid first-hand evidence for a fully contained claim; request more context only for a specific missing qualification. When rereading use evidence_id, or an explicitly supplied span_ids entry, not a guessed span. The original_pages windows are actual freshly reread source passages, not summaries. Use these directly and call tools only when their context is insufficient. Audit EVERY claim AND comparison table against read_original, not researcher summaries. Check factual support, experiment comparability and scope. Mark errors owner=researcher for source/extraction gaps, owner=reporter for wording, inference or citation misuse. Return revise for errors, undetermined for incomplete checks, pass only after checking all claims. Checking and finding errors is successful execution. Do not assign versions or change evidence.',
 }
 
 PROMPTS['researcher'] += (' Search English papers with English terms, and cover each named paper independently using document_ids when needed. '
@@ -101,6 +102,60 @@ PROMPTS['reviewer'] += (' A scoped conclusion that collected evidence cannot est
 PROMPTS['reviewer'] += (' Claim text includes its publicly displayed scope prefix. Evaluate the qualified proposition '
     'as a whole; do not treat its qualification as hidden metadata or ignore it. A scope prefix cannot excuse '
     'a contradiction or an inference not supported within that scope.')
+
+
+for _role in ('researcher', 'reporter', 'reviewer'):
+    PROMPTS[_role] += (' task.local_library_selection distinguishes the indexed_papers count, '
+        'selected_library_papers, and evidence actually collected. The full catalog stays in local audit records; '
+        'catalog_is_preview means the supplied selection is not an exhaustive catalog. A missing selection or missing passage '
+        'NEVER establishes absence from the local library. Say "本轮未取得该论文的原文证据" '
+        'when that is all you know. Do not claim "本地无原始论文" merely because its title is not in the selection. '
+        'Prefer primary-method evidence over secondary surveys when a primary source is admitted. '
+        'Reviewers must flag unsupported library-wide absence claims as blocking scope errors.')
+PROMPTS['reporter'] += (' Write normal readable prose, not Python dicts, None, or HTML entity codes. '
+    'Put comparison rows only in comparison_table; do not repeat those rows as prose claims. '
+    'For an equation-based deduction separate the constant retrieval prior from the changing generator '
+    'probabilities; do not describe per-token marginalization as per-token retriever calls.')
+
+
+PROMPTS['reporter'] += (' Default to at most four focused claims and one optional limitation; '
+    'combine each requested entity title, purpose and one design into a short claim. Omit authors, '
+    'affiliations, publication/DOI uncertainty, hardware, parameter counts and secondary papers unless asked. '
+    'The question is authoritative: two named components of one paper are NOT two papers. '
+    'Do not invent a Discussion Paper, missing second paper, task background or user intention. '
+    'Runtime scope comes from task.execution_scope; do not cite a paper to prove library counts or which pages the program read. '
+    'Usually omit runtime self-description from claims/limitations; it is audit metadata. '
+    'For unavailable monetary costs, answer unknown within the collected excerpts, identify only necessary unknown inputs, '
+    'and do not add a pricing recipe, hardware tutorial or unnecessary configuration comparisons. '
+    'A finding about what collected excerpts contain is different from a whole-paper absence claim. '
+    'Retain stage/task qualifications when a configuration differs across training, inference and benchmarks. '
+    'On revision, remove unnecessary disputed details instead of expanding the answer to defend them.')
+PROMPTS['researcher'] += (' Collect evidence for the actual requested entities/components; do not expand '
+    'a concise question into publication checks, unrelated parameter comparisons or a proof of absence from whole papers. '
+    'An unknown monetary amount needs a scoped insufficiency finding, not invented inputs or repeated exhaustive searches.')
+PROMPTS['reviewer'] += (' batch_claim_ids are the ONLY allowed audit targets. Each must be checked or unchecked exactly once, '
+    'never both. Do not mark other report_outline entries unchecked or attach issues to them. '
+    'A claim supported jointly by several evidence IDs must be evaluated against ALL its associated original windows; '
+    'a shorter registered quote may use its freshly reread surrounding window. Normalized character offsets are not byte offsets. '
+    'For optional naming/translation/anchor refinements with no material error, use category=style severity=warning '
+    'and pass after complete factual checks. Never call something factually correct and simultaneously block it without '
+    'identifying a specific different unsupported proposition. Do not demand verbatim author wording for a valid synthesis. '
+    'A statement explicitly restricted to collected excerpts does not assert absence from the whole paper. '
+    'Do not invent extra tasks, papers or required details beyond the user question. Judge runtime coverage statements '
+    'against task.execution_scope, not against quotations from papers. Treat relative context/boundary commentary as optional '
+    'unless it materially changes a requested conclusion; request additional sources only for an indispensable claim.')
+
+
+PROMPTS['reporter'] += (' Follow task.answer_policy. With no_estimation=true, decide whether the requested '
+    'amount is supported and identify necessary unknowns in at most two concise claims unless the user specifies otherwise. '
+    'Do NOT enumerate hardware model names, GPU counts, dataset lists, API prices or additional numeric conditions just '
+    'to justify uncertainty. If the evidence does not establish a value, say "本轮证据不足以确认" rather than '
+    'claiming nothing anywhere in a paper reports it. Do not invent a value, and do not assume the answer must be negative '
+    'if an actual supported value is present. Cite the source premises and explain the limit of the inference.')
+PROMPTS['reviewer'] += (' Do not expand a statement about only short-form/open-domain tasks into a claim about '
+    'every dataset in the paper. A non-exhaustive list is not an assertion that other datasets are absent. '
+    'For no_estimation questions, missing monetary support is a legitimate answer; do not require new pricing research '
+    'or an exhaustive experiment inventory to accept an explicitly scoped inability to establish the requested value.')
 
 
 class UsageCallback(AsyncCallbackHandler):
@@ -189,6 +244,12 @@ class ThreeAgents:
         self.config = config
 
     async def invoke(self, role, payload, schema, tools, meter):
+        # Own the async transport per invocation; honor an explicit proxy policy.
+        async with httpx.AsyncClient(timeout=self.config.model_timeout_seconds,
+                trust_env=self.config.model_trust_env) as client:
+            return await self._invoke(role,payload,schema,tools,meter,client)
+
+    async def _invoke(self, role, payload, schema, tools, meter, http_client):
         config = self.config
         frontend_agent = {'researcher':'analysis','reporter':'writing','reviewer':'verification'}[role]
         text = json.dumps(payload, ensure_ascii=False)
@@ -198,7 +259,7 @@ class ThreeAgents:
         extras = {'reasoning_effort': config.model_reasoning_effort} if config.model_reasoning_effort else {}
         model = ChatOpenAI(model=config.model_name, api_key=config.model_api_key.get_secret_value(),
                            base_url=config.model_base_url, timeout=config.model_timeout_seconds,
-                           max_retries=0, max_tokens=config.model_max_tokens, **extras)
+                           max_retries=0, max_tokens=config.model_max_tokens, http_async_client=http_client, **extras)
         callback = UsageCallback(meter, role)
         agent = create_agent(model=model, tools=tools, name=role,
                              middleware=[FinalizeMiddleware(callback,role)],
@@ -206,7 +267,7 @@ class ThreeAgents:
                              response_format=ToolStrategy(schema, handle_errors=False))
         import hashlib
         meter.workspace.save('agent_configuration', {'role': role, 'model': config.model_name,
-            'prompt_hash': hashlib.sha256(PROMPTS[role].encode()).hexdigest(),
+            'model_trust_env':config.model_trust_env,'prompt_hash': hashlib.sha256(PROMPTS[role].encode()).hexdigest(),
             'output_schema': schema.model_json_schema(), 'tools': [t.name for t in tools]})
         from langsmith import tracing_context
         messages = [{'role': 'user', 'content': text}]

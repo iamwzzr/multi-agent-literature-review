@@ -17,6 +17,7 @@ class Budget(Contract):
 
 class EvidenceDraft(Contract):
     span_id: str
+    quote: str | None = Field(default=None, min_length=20, max_length=1600)
     finding: str = Field(max_length=1600)
     conditions: dict[str, str | None] = Field(default_factory=dict)
     limitations: list[str] = Field(default_factory=list, max_length=10)
@@ -56,19 +57,26 @@ class ReportOutput(Contract):
 def report_contract(task):
     """Enforce requested output size before a draft reaches the audit queue."""
     requirements=task.get('output_requirements',{})
-    claims=requirements.get('max_claims',30)
+    claims=requirements.get('max_claims',4)
     claims=claims if type(claims) is int and 1<=claims<=30 else 30
     question=task.get('question','')
+    table_terms=r'表格|比较表|对照表|对比表|比较矩阵|对比矩阵|comparison\s+(?:table|matrix)'
+    wants_table=bool(re.search(table_terms,question,re.I))
+    no_table=bool(re.search(r'(?:不要|无需|不需要|不生成|不输出|不提供|do not|no)\s*(?:生成|输出|提供|include|generate)?\s*(?:'+table_terms+r')',question,re.I))
     rows=requirements.get('max_comparison_rows')
-    if type(rows) is not int or not 0<=rows<=20:
+    explicit_rows=type(rows) is int and 0<=rows<=20
+    if not explicit_rows:
         numbers={'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10}
         match=re.search(r'([一二三四五六七八九十]|\d+)\s*行',question)
-        rows=numbers.get(match[1],int(match[1]) if match and match[1].isdigit() else 1) if match else (
-            20 if re.search(r'表格|比较表|comparison table',question,re.I) else 0)
-        rows=min(rows,20)
+        rows=numbers.get(match[1],int(match[1]) if match and match[1].isdigit() else 1) if match else (20 if wants_table else 0)
+        rows=0 if no_table else min(rows,20)
+    min_rows=1 if wants_table and not no_table and rows>0 else 0
     return create_model('ReportOutput',__base__=ReportOutput,
         claims=(list[ClaimDraft],Field(min_length=1,max_length=claims)),
-        comparison_table=(list[ComparisonRow],Field(default_factory=list,max_length=rows)))
+        comparison_table=(list[ComparisonRow],Field(default_factory=list,min_length=min_rows,max_length=rows,validate_default=True)),
+        limitations=(list[str],Field(default_factory=list,max_length=1)),
+        evidence_requests=(list[str],Field(default_factory=list,max_length=2)))
+
 
 
 class IssueDraft(Contract):
@@ -107,9 +115,13 @@ class ReviewOutput(Contract):
 
 
 def delivery_allowed(report, review, evidence, papers):
-    if report.get('status', 'success') != 'success':
+    if report.get('status', 'success') not in ('success', 'partial') or report.get('errors'):
         return False
-    if review['status'] != 'success' or review['verdict'] != 'pass':
+    # A scoped unknown can fully answer a question. The independent reviewer, not
+    # the writer's confidence label, decides coverage; all source/version gates remain.
+    if report.get('status') == 'partial' and not review.get('question_covered'):
+        return False
+    if review['status'] != 'success' or review['verdict'] != 'pass' or review.get('errors'):
         return False
     if review['reviewed_report_version'] != report['report_version'] or review['reviewed_evidence_snapshot_id'] != report['evidence_snapshot_id']:
         return False

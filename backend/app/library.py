@@ -5,6 +5,7 @@ import math
 import re
 import sys
 import subprocess
+import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from itertools import zip_longest
@@ -48,7 +49,12 @@ def content_regions(pages):
 
 def tokens(text):
     stop = {'the', 'and', 'for', 'with', 'that', 'this', 'from', 'are', 'how', 'what', 'does', '研究', '文献'}
-    words = re.findall(r'[a-z0-9]{2,}', text.lower())
+    # Retrieval-only normalization: never change stored quotations or anchor offsets.
+    text = unicodedata.normalize('NFKC', text).replace('\u00ad', '')
+    lowered=text.lower()
+    words = re.findall(r'[a-z0-9]{2,}', lowered)
+    # Add the joined spelling while retaining original tokens for genuine compounds.
+    words.extend(a+b for a,b in re.findall(r'([a-z]{2,})-\s+([a-z]{2,})',lowered))
     for span in re.findall(r'[\u3400-\u9fff]+', text):
         words.extend(span[i:i+2] for i in range(len(span)-1))
     return [w for w in words if w not in stop]
@@ -220,6 +226,32 @@ def indexed_paper(path, digest, fingerprint, parsed):
     return {'id': paper_id, 'path': str(path), 'digest': digest, 'fingerprint': fingerprint, 'paper': paper, 'chunks': chunks}
 
 
+def named_retrieval_queries(queries):
+    """Split explicitly named Latin methods, preserving hyphenated identities."""
+    queries = list(dict.fromkeys(q.strip() for q in queries if q.strip()))
+    names = []
+    for query in queries:
+        for match in re.finditer(r'(?<![A-Za-z0-9-])(?:[A-Za-z]+-[A-Za-z]+|[A-Z][A-Z0-9]{2,})(?![A-Za-z0-9-])', query):
+            name = match[0]
+            if name not in {'PDF', 'API', 'DOI', 'HTTP', 'HTTPS', 'LLM', 'GPU', 'CPU'}:
+                names.append(name)
+    return list(dict.fromkeys([*names, *queries]))
+
+
+def title_method_score(title, name):
+    """Title cues prioritize source coverage; they never verify paper identity."""
+    boundary = r'(?![a-z0-9-])'
+    if re.match(re.escape(name) + boundary, title, re.I):
+        return 4
+    words = re.findall(r'[A-Za-z]+', title)
+    for i, word in enumerate(words):
+        if word.lower() in {'for', 'with', 'via', 'using', 'towards', 'through'} and i >= 2:
+            if ''.join(w[0] for w in words[:i]).upper() == name.upper():
+                return 2 if re.search(r'\b(survey|review)\b', title, re.I) else 3
+            break
+    return 1 if re.search(r'(?<![a-z0-9-])' + re.escape(name) + boundary, title, re.I) else 0
+
+
 class SearchIndex:
     """Bounded in-memory BM25 over page-preserving passages; English words + CJK bigrams."""
 
@@ -241,15 +273,52 @@ class SearchIndex:
         self.norms = [1.2 * (.25 + .75 * length / average) for length in lengths]
 
     def rank_papers(self, queries):
-        # The first hit for each paper precedes repeated hits within a query.
-        # Interleave the rankings so each subquestion contributes candidates.
-        ranked = (self.search(query, len(self.document_lengths)) for query in dict.fromkeys(queries))
-        return list(dict.fromkeys(
-            hit['paper']['id']
-            for rank in zip_longest(*ranked)
-            for hit in rank
-            if hit is not None
-        ))
+        expanded = named_retrieval_queries(queries)
+        original = {q.strip() for q in queries}
+        names = [q for q in expanded if q not in original or re.fullmatch(r'[A-Za-z0-9-]+', q)]
+        catalog = {c['paper']['id']: c['paper']['title'] for c in self.chunks}
+        # One strong title match per named method before incidental mentions.
+        direct = []
+        for name in names:
+            matches = sorted(catalog, key=lambda key: (-title_method_score(catalog[key], name), key))
+            if matches and title_method_score(catalog[matches[0]], name) >= 3:
+                direct.append(matches[0])
+        ranked = [self.search(query, len(self.document_lengths)) for query in expanded]
+        return list(dict.fromkeys([*direct, *(
+            hit['paper']['id'] for rank in zip_longest(*ranked)
+            for hit in rank if hit is not None)]))
+
+    def search_many(self, queries, limit=6, document_ids=None, paper_ids=None, content_region=None):
+        """Fuse real question/subquestion results; no gold papers or pages are used."""
+        if limit<=0: return []
+        queries=named_retrieval_queries(queries)
+        ranked=[self.search(q,max(6,limit*2),document_ids,paper_ids,content_region) for q in queries]
+        scores=defaultdict(float);items={}
+        for hits in ranked:
+            for rank,hit in enumerate(hits,1):
+                items[hit['id']]=hit;scores[hit['id']]+=1/(60+rank)
+        result=[];seen=set();pages=Counter()
+        def admit(hit):
+            key=(hit['paper']['id'],hit['page'])
+            if hit['id'] in seen or pages[key]>=1: return
+            result.append(hit);seen.add(hit['id']);pages[key]+=1
+        # Reserve a first hit for each supplied subquestion before fused fill.
+        catalog = {c['paper']['id']: c['paper']['title'] for c in self.chunks}
+        for query, hits in zip(queries, ranked):
+            if len(result) >= limit:
+                break
+            primary = sorted(catalog, key=lambda key: (-title_method_score(catalog[key], query), key))
+            if re.fullmatch(r'[A-Za-z0-9-]+', query) and primary and title_method_score(catalog[primary[0]], query) >= 3:
+                targeted = self.search(query, 1, document_ids, [primary[0]] if paper_ids is None else [p for p in paper_ids if p == primary[0]], content_region)
+                if targeted:
+                    admit(targeted[0])
+                    continue
+            if hits:
+                admit(hits[0])
+        for key in sorted(items,key=lambda key:(-scores[key],key)):
+            if len(result)>=limit: break
+            admit(items[key])
+        return result
 
     def search(self, query: str, limit=6, document_ids=None, paper_ids=None, content_region=None):
         if limit <= 0:
@@ -264,7 +333,14 @@ class SearchIndex:
                    '重新':'regenerate', '置信度':'confidence probability threshold',
                    '训练':'training', '推理':'inference reasoning', '证据':'evidence support',
                    '数据集':'dataset', '指标':'metric', '成本':'cost', '硬件':'hardware',
-                   '比较':'compare comparison', '评估':'evaluation', '准确率':'accuracy'}
+                   '比较':'compare comparison', '评估':'evaluation', '准确率':'accuracy',
+                   '查资料':'retrieval retrieve search documents acquire acquires',
+                   '查找资料':'retrieval retrieve search documents',
+                   '需不需要':'need necessary adaptive conditional conditionally',
+                   '不确定':'uncertain uncertainty confidence',
+                   '触发':'trigger threshold conditional',
+                   '花费':'cost latency tokens', '耗时':'latency time',
+                   '局限':'limitation limitations', '出处':'citation evidence source'}
         expanded = query + ' ' + ' '.join(v for k,v in aliases.items() if k in query)
         prioritize_body=not re.search(r'appendi[xxc]|prompt|附录|提示词',query,re.I)
         scores = defaultdict(float)

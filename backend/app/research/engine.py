@@ -10,10 +10,12 @@ from ..library import SearchIndex, digest_file, normalize, parse_pdf, content_re
 from ..metadata import bibliography
 from ..workflow import phase
 from .agents import ThreeAgents
-from .context import EvidenceRegistry,evidence_view,report_view,history_view,paper_view,review_payloads,original_windows,scoped_claim_text
+from .context import EvidenceRegistry,evidence_view,report_view,history_view,paper_view,review_payloads,original_windows,scoped_claim_text,select_original_items
 from .citations import validate_citations, display_citations, cited_paragraph
 from .contracts import Budget, ResearchOutput, ReportOutput, ReviewOutput, IssueDraft, delivery_allowed, report_contract
 from .comparisons import overlap_issues
+from .reviewing import review_contract, incomplete_batch, merge_reviews
+from .presentation import readable, conditions_text, visible_claims, PRECISION_PENDING, PRECISION_REVIEWED, library_scope_issues, task_scope_issues, bibliography_view
 from .sources import AcademicSources
 from .workspace import Workspace, Meter, identifier, content_hash
 
@@ -29,10 +31,13 @@ class ThreeAgentWorkflow:
         ws = Workspace(self.store, request.project.id, self.run_id)
         budget = request.research_budget or Budget()
         meter = Meter(budget, ws)
+        constrained_amount = bool(re.search(r'(?:禁止|不要|不得).{0,20}(?:估算|换算|补写金额)', request.question))
         task = {'task_id': identifier('task'), 'question': request.question,
                 'subquestions': [{'id':identifier('question'),'question':q['question']} for q in request.subquestions] or [{'id':identifier('question'),'question':request.question}],
                 'source_mode': request.source_mode, 'allow_local_metadata_lookup': request.allow_local_metadata_lookup,
-                'scope': request.research_scope, 'output_requirements': request.output_requirements,
+                'scope': request.research_scope, 'output_requirements': {'max_claims':2 if constrained_amount else 4, **request.output_requirements},
+                'answer_policy': {'no_estimation':constrained_amount,
+                    'focus':'Determine what the collected evidence can establish about the requested quantity; leave unsupported values unknown. Do not expand into hardware specifications, complete dataset inventories or pricing recipes.' if constrained_amount else 'Answer only the requested entities and relationships.'},
                 'budget': budget.model_dump(), 'uploaded_file_ids': request.uploaded_file_ids}
         ws.save('task_spec', task, task['task_id'])
         sources = self.sources_factory(self.config, ws, meter)
@@ -48,6 +53,8 @@ class ThreeAgentWorkflow:
                     )
                     limitations.extend(warnings)
                     ws.save('local_library_selection', selection)
+                    task['local_library_selection'] = {k:v for k,v in selection.items() if k != 'catalog_titles'} | {
+                        'catalog_is_preview': True, 'full_catalog_record': 'local_library_selection'}
                     if selection['strategy'] == 'bm25':
                         scope_note = (f"在本地索引的 {selection['indexed_papers']} 篇可检索文献中，"
                                       f"本轮选入 {len(selection['selected_library_papers'])} 篇目录文献供全文核查。")
@@ -74,6 +81,7 @@ class ThreeAgentWorkflow:
                         documents[document['document_id']] = document
                         self.add_chunks(document, candidate, chunks)
                 if not chunks:
+                    limitations.append('当前资料中没有可检索的原文文本；请检查目录、文件可读性和来源模式。')
                     self.report = {'sections': [{'id': 'insufficient-material', 'heading': '资料不足', 'paragraphs':
                                    ['未取得当前来源政策允许使用的原文，未生成综述。'] + limitations}],
                                    'evidence': [], 'verification': 'no_evidence', 'task_status': 'blocked',
@@ -118,18 +126,17 @@ class ThreeAgentWorkflow:
                             'adjacent_pages':adjacent}, 'error': None}
 
                 @tool
-                async def read_original(document_id: str, page: int, span_id: str | None = None) -> dict:
-                    """Read a bounded original passage with page and offsets. Complete PDF pages stay local; specify span_id for a particular registered passage."""
+                async def read_original(document_id: str, page: int, span_id: str | None = None,
+                                        evidence_id: str | None = None) -> dict:
+                    """Read bounded freshly parsed original passages. Prefer evidence_id for an evidence card or span_id for a registered source span. Full pages stay local."""
+                    if document_id not in documents:
+                        matches=[d['document_id'] for d in documents.values() if d['paper_id']==document_id]
+                        if len(matches)==1:document_id=matches[0]
                     original=await load_original_page(document_id,page)
-                    if original['status']!='ok': return original
-                    if span_id:
-                        span=by_span.get(span_id)
-                        selected=[span] if span and span['document_id']==document_id and span['page']==page else []
-                    else:
-                        selected=[c for c in chunks if c['document_id']==document_id and c['page']==page][:2]
-                    if not selected:
-                        return {'status':'error','data':None,'error':{'code':'UNKNOWN_SPAN'}}
-                    items=[{'evidence_id':c['id'],'document_id':document_id,'location':{'page':page},'quote':c['text']} for c in selected]
+                    if original['status']!='ok':return original
+                    items,error=select_original_items({**by_span,**registry.extra_spans},evidence,
+                        document_id,page,span_id,evidence_id)
+                    if error:return {'status':'error','data':None,'error':{'code':error}}
                     return {'status':'ok','data':original_windows([original],items),'error':None}
 
                 @tool
@@ -163,9 +170,14 @@ class ThreeAgentWorkflow:
                     return {'status':'ok' if matches else 'empty','data':matches,'error':None}
 
                 @tool
-                def record_evidence(span_id: str, finding: str, conditions: dict[str,str | None]) -> dict:
+                def record_evidence(span_id: str, finding: str, conditions: dict[str,str | None], quote: str | None = None) -> dict:
                     """Register evidence from an existing span. Quotes and location are copied by the program, never supplied by the model."""
-                    card=registry.add(span_id,finding,conditions)
+                    try:
+                        card=registry.add(span_id,finding,conditions,quote=quote)
+                    except AppError as error:
+                        if error.code!='INVALID_EVIDENCE_QUOTE': raise
+                        return {'status':'error','data':None,'error':{'code':error.code,
+                            'message':'Quote is not an exact unique source match. Read the original or omit quote to retain the registered passage.'}}
                     return {'status':'ok' if card else 'error','data':card,
                             'error':None if card else {'code':'EVIDENCE_BUDGET'}}
 
@@ -237,7 +249,8 @@ class ThreeAgentWorkflow:
                         if sum(len(d['pages']) for d in documents.values()) > self.config.max_total_pages:
                             raise AppError('BUDGET_EXHAUSTED', '总页数预算耗尽。', 409)
                         yield phase('Researcher 提取原文证据', ['analysis', 'search'], summary='记录原文片段、实验条件和资料缺口。')
-                        initial_passages=await asyncio.to_thread(index.search,request.question,6)
+                        initial_passages=await asyncio.to_thread(index.search_many,
+                            [request.question,*[entry['question'] for entry in request.subquestions]],6)
                         condition_passages=[]
                         if re.search(r'可比|条件|数据集|指标|comparab|conditions|datasets|metrics',request.question,re.I):
                             seen={c['id'] for c in initial_passages}
@@ -257,7 +270,7 @@ class ThreeAgentWorkflow:
                             meter.charge('tool','researcher_read_original')
                             initial_originals.append(await load_original_page(doc_id,page))
                         initial_cards=[{'evidence_id':c['id'],'document_id':c['document_id'],
-                                        'location':{'page':c['page']},'quote':c['text']} for c in initial_passages]
+                                        'location':{'page':c['page'],**({'start':c['start']} if 'start' in c else {})},'quote':c['text']} for c in initial_passages]
                         result = await self.agents.invoke('researcher', {'task': task, 'papers': paper_view(papers),
                             'documents': [{k: v for k,v in d.items() if k not in ('pages','path')} for d in documents.values()],
                             'initial_passages': initial_passages,
@@ -278,7 +291,7 @@ class ThreeAgentWorkflow:
                             raise AppError('AGENT_FAILED','Researcher 记录了实际执行错误。',503)
                         research_gaps=list(dict.fromkeys(research_gaps+result.unresolved_gaps))
                         drafts=list(result.evidence)
-                        invalid=[d for d in drafts if d.span_id not in by_span]
+                        invalid=[d for d in drafts if d.span_id not in by_span and d.span_id not in registry.extra_spans]
                         if invalid:
                             import difflib
                             candidates={}
@@ -300,12 +313,20 @@ class ThreeAgentWorkflow:
                             ws.save('span_repair_result',repaired.model_dump())
                             if repaired.status=='failed' or repaired.outcome=='execution_error' or repaired.errors:
                                 raise AppError('AGENT_FAILED','片段 ID 纠正未成功，拒绝登记修复结果。',503)
-                            if any(d.span_id not in by_span for d in repaired.evidence):
+                            if any(d.span_id not in by_span and d.span_id not in registry.extra_spans for d in repaired.evidence):
                                 raise AppError('UNKNOWN_SPAN','片段 ID 纠正后仍无效，拒绝登记证据。',422)
                             research_gaps.extend(repaired.unresolved_gaps)
                             drafts=[d for d in drafts if d.span_id in by_span]+list(repaired.evidence)
                         for item in drafts:
-                            card=registry.add(item.span_id,item.finding,item.conditions,item.limitations)
+                            try:
+                                card=registry.add(item.span_id,item.finding,item.conditions,item.limitations,quote=item.quote)
+                            except AppError as error:
+                                if error.code!='INVALID_EVIDENCE_QUOTE': raise
+                                note='模型建议的短引文未能唯一定位，已退回登记原文片段；该发现仍须原文审核。'
+                                limitations.append(note)
+                                ws.save('quote_precision_fallback',{'span_id':item.span_id,'reason':error.code})
+                                card=registry.add(item.span_id,item.finding,item.conditions,item.limitations+[note])
+
                             if card is None:
                                 limitations.append('本轮证据数量上限已到，额外材料未进入当前证据快照。')
                     if not evidence:
@@ -324,6 +345,12 @@ class ThreeAgentWorkflow:
                     ws.save('evidence_snapshot', {'evidence_ids': [e['evidence_id'] for e in evidence],
                             'hash': content_hash(evidence)}, snapshot_id)
                     yield phase('Reporter 综合报告', ['writing'], ['search', 'analysis'])
+                    task['execution_scope'] = {'evidence_papers': [
+                        {'paper_id':p['paper_id'],'title':p['title'],
+                         'pages':sorted({e['location']['page'] for e in evidence if e['paper_id']==p['paper_id']})}
+                        for p in papers if any(e['paper_id']==p['paper_id'] for e in evidence)],
+                        'evidence_count':len(evidence), 'is_exhaustive_library_audit':False}
+                    ws.save('report_scope',{'snapshot_id':snapshot_id, **task['execution_scope']})
                     written = await self.agents.invoke('reporter', {'task': task, 'papers': paper_view(papers),
                         'evidence': evidence_view(evidence), 'previous_report': report_view(report,[i.get('claim_id') for i in pending]), 'issues': pending,
                         'research_gaps':research_gaps,
@@ -350,12 +377,13 @@ class ThreeAgentWorkflow:
                               'comparison_table': [r.model_dump() for r in written.comparison_table], 'limitations': written.limitations,
                               'evidence_requests':[{'request_id':f'request-{n}','question':q}
                                                    for n,q in enumerate(written.evidence_requests,1)],
-                              'status': written.status, 'task_id':task['task_id'],
+                              'status': written.status, 'errors':written.errors, 'task_id':task['task_id'],
                               'issue_responses':[dict(i,status='addressed') for i in pending]}
                     for row in report['comparison_table']:
                         report['claims'].append({'claim_id': identifier('claim'), 'kind': 'synthesis',
                             'text': '；'.join(f"{k}: {v if v is not None else '未知（未报告）'}" for k,v in row['cells'].items()),
-                            'evidence_ids': row['evidence_ids'], 'scope': str(row['conditions'])})
+                            'evidence_ids': row['evidence_ids'], 'scope': conditions_text(row['conditions']),
+                            'presentation': 'comparison_row'})
                     # Model-written limitations are not an unreviewed prose escape hatch.
                     for text in report['limitations']:
                         cited=re.findall(r'\bevidence-[A-Za-z0-9_-]+\b',text)
@@ -371,22 +399,39 @@ class ThreeAgentWorkflow:
                         originals.append(await load_original_page(document_id,page))
                     # Keep original pages intact; split the audit by claims instead of truncating source text.
                     results = []
-                    for review_payload in review_payloads(task,report,evidence,papers,originals,pending,self.config.max_prompt_chars):
-                        ws.save('review_context',{'report_version':report['report_version'],
+                    for batch_number, review_payload in enumerate(review_payloads(task,report,evidence,papers,originals,pending,self.config.max_prompt_chars-2000),1):
+                        batch_id = f"{report['report_id']}-batch-{batch_number}"
+                        review_payload['batch_id'] = batch_id
+                        ws.save('review_context',{'batch_id':batch_id,'report_version':report['report_version'],
                             'characters':len(json.dumps(review_payload,ensure_ascii=False)),
-                            'claim_ids':[c['claim_id'] for c in review_payload['report']['claims']]})
-                        results.append(await self.agents.invoke('reviewer',review_payload,
-                            ReviewOutput,[read_original,query_evidence,get_paper_record,get_verification_log,read_report_claim],meter))
-                    checked = ReviewOutput(status='failed' if any(r.status=='failed' for r in results) else
-                        'partial' if any(r.status=='partial' for r in results) else 'success',
-                        verdict='revise' if any(r.verdict=='revise' for r in results) else
-                        'undetermined' if any(r.verdict=='undetermined' for r in results) else 'pass',
-                        checked_claim_ids=[c for r in results for c in r.checked_claim_ids],
-                        unchecked_claim_ids=[c for r in results for c in r.unchecked_claim_ids],
-                        question_covered=all(r.question_covered for r in results),
-                        request_assessments=[a for r in results for a in r.request_assessments],
-                        issues=[i for r in results for i in r.issues])
-                    conflicts=overlap_issues(report,evidence,task)
+                            'claim_ids':[c['claim_id'] for c in review_payload['report']['claims']],
+                            'evidence_ids':[e['evidence_id'] for e in review_payload['evidence']]})
+                        schema = review_contract(review_payload)
+                        result = None
+                        for attempt in range(2):
+                            ws.save('review_batch_input',{'batch_id':batch_id,'attempt':attempt+1,'payload':review_payload})
+                            try:
+                                returned = await self.agents.invoke('reviewer',review_payload,
+                                    schema,[read_original,query_evidence,get_paper_record,get_verification_log,read_report_claim],meter)
+                                ws.save('review_batch_output',{'batch_id':batch_id,'attempt':attempt+1,
+                                    'report_version':report['report_version'],'result':returned.model_dump()})
+                                result = schema.model_validate(returned.model_dump())
+                                break
+                            except ValueError as error:
+                                ws.save('review_batch_invalid',{'batch_id':batch_id,'reason':str(error)[:1500]})
+                                review_payload['protocol_correction'] = str(error)[:1500]
+                            except AppError as error:
+                                if error.code != 'AGENT_SCHEMA_INVALID': raise
+                                ws.save('review_batch_invalid',{'batch_id':batch_id,'reason':error.code})
+                                break
+                        result = result or incomplete_batch(review_payload,'INVALID_REVIEW_BATCH')
+                        ws.save('review_batch_result',{'batch_id':batch_id,'report_version':report['report_version'],
+                            'claim_ids':[c['claim_id'] for c in review_payload['report']['claims']],
+                            'evidence_ids':[e['evidence_id'] for e in review_payload['evidence']],
+                            'result':result.model_dump()})
+                        results.append(result)
+                    checked = merge_reviews(results)
+                    conflicts=overlap_issues(report,evidence,task) + library_scope_issues(report,task) + task_scope_issues(report,task)
                     for claim in report['claims']:
                         if claim.get('presentation')=='limitation' and not claim['evidence_ids']:
                             conflicts.append({'claim_id':claim['claim_id'],'evidence_ids':[],
@@ -427,6 +472,9 @@ class ThreeAgentWorkflow:
                         'assessments':review['request_assessments'],'required_request_ids':[q['request_id'] for q in required_requests]})
                     ws.save('review_result', review)
                     if delivery_allowed(report, review, evidence, papers):
+                        ws.save('completion_decision',{'report_id':report['report_id'],'report_version':report['report_version'],
+                            'evidence_snapshot_id':snapshot_id,'producer_status':report['status'],
+                            'question_covered':review['question_covered'],'basis':'complete_valid_review_and_source_version_gates'})
                         for issue in pending:
                             ws.save('issue_resolution', dict(issue, status='resolved', report_version=report['report_version']))
                         self.report = self.render(report, review, evidence, papers, documents, 'completed', limitations, meter)
@@ -434,7 +482,7 @@ class ThreeAgentWorkflow:
                     if feedback >= budget.feedback_batches or checked.status == 'failed':
                         self.report = self.render(report, review, evidence, papers, documents, 'partial', limitations, meter)
                         break
-                    pending = review['issues']+[{'issue_id':identifier('issue'),'owner':'researcher',
+                    pending = [i for i in review['issues'] if i['severity']=='blocking']+[{'issue_id':identifier('issue'),'owner':'researcher',
                         'problem':q['question'],'required_fix':q['question'],'status':'open'} for q in required_requests]
                     for issue in pending:
                         ws.save('issue_response', dict(issue, status='addressed', next_report_version=report['report_version']+1))
@@ -492,6 +540,8 @@ class ThreeAgentWorkflow:
             'strategy': 'bm25' if shortlist else 'all',
             'indexed_papers': len(indexed_papers),
             'selected_library_papers': selected,
+            'catalog_titles': [p['title'] for p in indexed_papers.values()],
+            'coverage_note': '目录仅表示已索引文件；选入不等于已阅读，已阅读不等于取得支持证据。未取得证据不能推出本地不存在该论文。',
             'admitted_local_papers': len(papers),
             'document_budget': meter.limit.documents,
         }, warnings
@@ -540,12 +590,14 @@ class ThreeAgentWorkflow:
         for page, (text,region) in enumerate(zip(document['pages'],content_regions(document['pages'])), 1):
             text = normalize(text)
             for offset in range(0, len(text), 1300):
-                passage = text[offset:offset+1600]
+                raw_passage = text[offset:offset+1600]
+                passage = raw_passage.strip()
                 if len(passage) < 20:
                     continue
                 chunks.append({'id': f"{document['document_id']}-p{page}-o{offset}",
                     'document_id': document['document_id'], 'paper_id': paper['paper_id'], 'page': page, 'text': passage,
-                    'content_region':region,
+                    'start':offset+len(raw_passage)-len(raw_passage.lstrip()),
+                    'end':offset+len(raw_passage.rstrip()),'content_region':region,
                     'paper': {'id': paper['paper_id'], 'title': paper['title']}})
 
     @staticmethod
@@ -572,17 +624,20 @@ class ThreeAgentWorkflow:
             front_evidence.append({'paper': {'id': d['document_id'], 'title': p['title'],
                 'author': ', '.join(p['authors']) or '作者未知', 'year': p['year'], 'pages': len(d['pages']),
                 'summary': p.get('source_label', '在线权威记录已核验；结论须另行审核。'), 'pdfAvailable': True},
-                'page': e['location']['page'], 'excerpt': e['quote'],
+                'page': e['location']['page'], 'excerpt': e['quote'],'evidenceId':e['evidence_id'],'location':e['location'],
                 'context': display_citations(e['finding'], references) if not re.search(r'\bevidence-', e['finding']) else '原文证据'})
         headings = {'finding': '研究发现', 'synthesis': '综合分析与比较', 'proposal': '研究建议'}
-        for claim in report['claims']:
-            if claim.get('presentation')=='limitation':
-                continue
-            sections.append({'id': claim['claim_id'], 'heading': headings.get(claim['kind'], claim['kind']),
-                'paragraphs': [cited_paragraph(scoped_claim_text(claim), claim['evidence_ids'], references)]})
+        groups = {}
+        for claim in visible_claims(report['claims']):
+            heading = headings.get(claim['kind'], claim['kind'])
+            if heading not in groups:
+                groups[heading] = {'id': claim['claim_id'], 'heading': heading, 'paragraphs': []}
+                sections.append(groups[heading])
+            groups[heading]['paragraphs'].append(readable(cited_paragraph(
+                scoped_claim_text(claim), claim['evidence_ids'], references)))
         display_table = [dict(row,
-            cells={k: display_citations(v, references) if v is not None else None for k, v in row['cells'].items()},
-            conditions={k: display_citations(v, references) if v is not None else None for k, v in row.get('conditions', {}).items()})
+            cells={k: readable(display_citations(v, references)) if v is not None else '未知（未报告）' for k, v in row['cells'].items()},
+            conditions={k: readable(display_citations(v, references)) for k, v in row.get('conditions', {}).items() if v is not None and v.strip()})
             for row in report['comparison_table']]
         warnings = list(dict.fromkeys(limitations + report['limitations'] +
                     [i['problem'] for i in (review or {}).get('issues', [])]))
@@ -590,15 +645,16 @@ class ThreeAgentWorkflow:
         # identifier in reviewer commentary as a registered report citation.
         warnings = [display_citations(re.sub(r'\bevidence-[A-Za-z0-9_-]+\b',
             lambda m:m[0] if m[0] in by_id else '（未登记的证据标识）',value), references) for value in warnings]
+        warnings = [readable(PRECISION_REVIEWED if status == 'completed' and value == PRECISION_PENDING else value) for value in warnings]
         if status != 'completed':
             warnings.insert(0, '以下为未通过最终审核的部分草稿，不能作为已审核报告使用。')
         if warnings or not sections:
             sections.append({'id': 'unresolved', 'heading': '状态与未解决问题', 'paragraphs': warnings or ['资料不足。']})
-        return {'sections': sections, 'evidence': front_evidence, 'claims': report['claims'],
+        return {'sections': sections, 'evidence': front_evidence, 'bibliography':bibliography_view(front_evidence), 'claims': report['claims'],
                 'followup_requests':report.get('evidence_requests',[]),
                 'comparison_table': display_table, 'review': review,
                 'report_version': report.get('report_version'), 'evidence_snapshot_id': report.get('evidence_snapshot_id'),
-                'task_status': status, 'verification': 'passed' if status == 'completed' else 'with_warnings',
+                'producer_status':report.get('status'), 'task_status': status, 'verification': 'passed' if status == 'completed' else 'with_warnings',
                 'unresolved': warnings, 'usage': {'model_calls': meter.models, 'tool_calls': meter.tools, 'tokens': meter.tokens}}
 
     def deliver(self):

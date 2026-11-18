@@ -33,7 +33,7 @@ async def main():
         result['result']='passed' if doc and doc['correspondence']=='matched' and not error else 'not_passed'
     else:
         result['result']='blocked'
-    (out/'results.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
+    (out/'results.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     print(json.dumps(result,ensure_ascii=True,indent=2),flush=True)
 
 

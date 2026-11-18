@@ -117,3 +117,10 @@ done 只代表流结束；顶层运行 status=completed 也不能代替 report.t
 4. 数字引用点击、原文 PDF 页码、比较表和导出警示。
 5. 固定论文集：本地、联网、混合补证、无证据、取消、预算不足和身份/PDF 错配。
 6. 保存真实运行 ID 和人工抽查结果，再确认第一版验收；不得用演示动画替代真实模型测试。
+
+
+## 2026-11-18 后端新增兼容字段
+
+运行交付报告增加 `producer_status`（写作者原始标签）和 `bibliography`（数组）。最终显示是否通过仍依据 `task_status`、`verification` 和完整审核结果，不能仅因 producer_status 为 partial 就把一个已完整审核的“证据不足”答案标为失败。
+
+每个 bibliography 元素含 document_id、paper、citations；每条 citation 含 index、evidence_id、page、location。按文档版本显示一次书目，点击编号仍定位具体证据。不要按题名或 DOI 合并不同版本，也不要重排原 evidence 编号。本次没有修改前端，需前端队友接入后才能改变界面上的重复书目显示。

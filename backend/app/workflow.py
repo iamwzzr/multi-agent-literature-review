@@ -158,6 +158,11 @@ class Workflow:
         previous = self.store.latest_report(request.project.id, request.conversationId)
         if plan.mode == 'reply' and previous and request.history and request.history[-1].sections:
             current = request.history[-1].model_dump()
+            # Optional localization fields must not invalidate legacy audit equality.
+            for item in current['evidence']:
+                for key in ('evidenceId', 'location'):
+                    if item.get(key) is None:
+                        item.pop(key, None)
             known = previous.get('sections') == current['sections'] and previous.get('evidence') == current['evidence']
             current_chunks = {(c['paper']['id'], c['page']): [] for c in chunks}
             for c in chunks:

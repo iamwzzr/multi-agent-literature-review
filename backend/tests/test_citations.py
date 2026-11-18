@@ -81,7 +81,8 @@ def test_reviewed_delivery_and_table_have_numeric_citations_but_raw_audit_is_pre
         display = json.dumps(rendered['sections']) + json.dumps(report['comparison_table'][0]['cells'])
         assert 'evidence-' not in display and '[[1]]' in display
         assert 'None' not in json.dumps(rendered['sections'])
-        assert any('未知（未报告）' in p for s in rendered['sections'] for p in s['paragraphs'])
+        assert report['comparison_table'][0]['cells']['unreported_cost'] == '未知（未报告）'
+        assert not any('finding:' in p for s in rendered['sections'] for p in s['paragraphs'])
         assert report['comparison_table'][0]['conditions']['setting'] == 'This experiment [[1]]'
         assert len(rendered['evidence']) == 1
         raw = next(a['payload'] for a in data['artifacts'] if a['kind'] == 'report_draft')

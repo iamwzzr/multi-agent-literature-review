@@ -25,13 +25,14 @@ class Workspace:
     def save(self, kind, value, object_id=None):
         key = object_id or identifier(kind)
         with self.store.connect() as db:
-            old = db.execute('SELECT payload FROM research_objects WHERE project=? AND id=?', (self.project,key)).fetchone()
-            if old:
-                if json.loads(old['payload']) != value:
+            inserted=db.execute('INSERT OR IGNORE INTO research_objects VALUES(?,?,?,?,?)',
+                (self.project,key,self.run,kind,json.dumps(value,ensure_ascii=False))).rowcount
+            if not inserted:
+                old=db.execute('SELECT kind,payload FROM research_objects WHERE project=? AND id=?',
+                    (self.project,key)).fetchone()
+                if old['kind']!=kind or json.loads(old['payload'])!=value:
                     raise AppError('IMMUTABLE_OBJECT', '不能静默覆盖既有材料版本。', 409)
                 return key
-            db.execute('INSERT INTO research_objects VALUES(?,?,?,?,?)',
-                       (self.project, key, self.run, kind, json.dumps(value, ensure_ascii=False)))
         self.store.artifact(self.run, kind, {'object_id': key, **value})
         return key
 

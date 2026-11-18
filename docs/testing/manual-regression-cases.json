@@ -1,0 +1,57 @@
+{
+  "cases": [
+    {
+      "id": "B",
+      "question": "库里有两篇使用 CRAG 缩写的不同论文。请按篇指出题名、用途和一项关键设计，并给各自的引用。",
+      "expected": [
+        "区分 Corrective Retrieval Augmented Generation 方法与 Comprehensive RAG Benchmark 基准。",
+        "分别引用两篇原论文。"
+      ],
+      "must_not": [
+        "将两篇论文的设计互换。"
+      ],
+      "evidence": [
+        {
+          "key": "crag",
+          "page": 1
+        },
+        {
+          "key": "crag-benchmark",
+          "page": 1
+        }
+      ],
+      "output_requirements": {}
+    },
+    {
+      "id": "C",
+      "question": "仅从原始 RAG、Self-RAG 和 FLARE 三篇原论文，能否给出同一模型、硬件和数据集下每次回答的人民币成本？请指出哪些信息无法从本次资料确认。禁止估算、换算或补写金额。",
+      "expected": [
+        "缺失信息保持未知，结论限定在实际证据范围内。"
+      ],
+      "must_not": [
+        "编造金额或自行换算价格。",
+        "将本轮缺口断言成三篇全文都不存在数据。"
+      ],
+      "evidence": [],
+      "output_requirements": {}
+    },
+    {
+      "id": "D",
+      "question": "WebThinker 的 Deep Web Explorer 与 Autonomous Think-Search-and-Draft 各负责什么？请引用两者的原文说明，不要使用其他研究 Agent 论文替代。",
+      "expected": [
+        "从 WebThinker 原论文说明网页探索与交错推理、搜索、写作的职责。"
+      ],
+      "must_not": [
+        "使用其他论文替代。",
+        "把同一篇论文的两个机制当成两篇论文。"
+      ],
+      "evidence": [
+        {
+          "key": "webthinker",
+          "page": 2
+        }
+      ],
+      "output_requirements": {}
+    }
+  ]
+}

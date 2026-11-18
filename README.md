@@ -88,3 +88,19 @@ Actual validation: 69 backend tests passed and a focused real-model task complet
 ## Integrated teammate updates (2026-11-18)
 
 This checkout combines backend/corpus work from `work/corpus-100-evaluation` (441f7ba) with the V1 frontend from `LIKeqing` (68e863c). The frontend includes source selection, PDF upload, three-agent activity, audit status, comparison tables and exports. See [frontend implementation](docs/FRONTEND_V1_IMPLEMENTATION.md). Original design-stage documentation is retained in [DESIGN.md](DESIGN.md); it is not the current implementation status. End-to-end acceptance of this newly combined version remains separate from each branch's recorded tests.
+
+## Precise source anchors (2026-11-18)
+
+The backend supports verified short quotations, normalized/raw text offsets and an evidence-location endpoint. Latest backend regression: 147 tests passed. PDF canvas coordinates/highlighting and measured semantic-retrieval improvements remain pending. See [skill research and precision implementation](docs/SKILL_REVIEW_AND_PRECISION.md).
+
+## Restored 100-paper corpus and backend fixes (2026-11-18)
+
+The local frozen corpus is restored and hash-verified: 100 PDFs, 2,092 parsed pages. Backend regression: 147 passed. The final seven real-model cases all completed execution checks; two reports passed final delivery and five remain partial. See [download, fixes, metrics and remaining gaps](docs/CORPUS_100_BACKEND_UPGRADE_2026-11-18.md). PDF files, local credentials and raw run records are ignored by Git.
+
+
+2026-11-18 报告展示与文献范围后续修复：后端完整回归 158 项通过；三原论文真实模型样例原文定位 10/10 匹配，内容审核仍为部分草稿。详见 [修复说明与复测步骤](docs/REPORT_DELIVERY_FIXES_2026-11-18.md)。
+
+
+## 2026-11-18 审核协议实现补充
+
+后端已增加逐批审核边界校验与输入/输出审计记录；完整说明见 [后端审核优化记录](docs/BACKEND_REVIEW_OPTIMIZATION_2026-11-18.md)。写作者 status、Reviewer 执行状态/结论和程序 task_status 分别表达：有效且完整核查的“证据不足”可以是已完成的答案，原始 partial 标签保留为 producer_status；失败、未检查项、必要缺口、引用或版本不匹配均不能通过。新增 bibliography 按文档版本归组，兼容保留证据片段编号。

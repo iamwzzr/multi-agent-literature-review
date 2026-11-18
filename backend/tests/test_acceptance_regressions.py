@@ -51,7 +51,7 @@ def test_scope_qualification_is_identical_in_review_and_delivery(setup):
     class Scoped(Trio):
         async def invoke(self,role,payload,schema,tools,meter):
             if role=='reviewer':
-                assert all(c['text'].startswith('适用范围：') for c in payload['report']['claims'])
+                assert all(c['text'].startswith('适用范围：') if c['scope'] else c.get('presentation') == 'comparison_row' for c in payload['report']['claims'])
             return await super().invoke(role,payload,schema,tools,meter)
     with local_client(create_app(config,ScriptedModel(),research_agents=Scoped())) as client:
         response=client.post('/api/v2/reviews/stream',json=payload)
@@ -121,8 +121,10 @@ def test_unknown_supplement_id_preserves_audit_but_never_grants_delivery(setup):
         assert events(response)[-1]['taskStatus']=='partial'
         report=client.get('/api/v1/runs/'+response.headers['x-run-id']).json()['report']
         assert report['review']['verdict']=='undetermined'
-        assert 'UNKNOWN_REQUEST' in report['review']['errors']
-        assert report['review']['request_assessments'][0]['request_id']=='invented'
+        assert 'INVALID_REVIEW_BATCH' in report['review']['errors']
+        assert report['review']['request_assessments']==[]
+        run=client.get('/api/v1/runs/'+response.headers['x-run-id']).json()
+        assert any(a['kind']=='review_batch_output' and a['payload']['result']['request_assessments'][0]['request_id']=='invented' for a in run['artifacts'])
 
 
 def test_bad_identifier_in_review_comment_is_preserved_but_not_rendered_as_citation(setup):
@@ -135,6 +137,7 @@ def test_bad_identifier_in_review_comment_is_preserved_but_not_rendered_as_citat
                 from app.research.contracts import IssueDraft
                 result.issues=[IssueDraft(claim_id=payload['report']['claims'][0]['claim_id'],owner='reporter',
                     severity='blocking',problem='Check evidence-invented-original',required_fix='Recheck original')]
+                result.verdict='revise'
             return result
     with local_client(create_app(config,ScriptedModel(),research_agents=BadReview())) as client:
         response=client.post('/api/v2/reviews/stream',json=payload)

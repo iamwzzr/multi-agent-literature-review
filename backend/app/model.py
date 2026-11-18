@@ -44,7 +44,7 @@ class ModelClient:
 
     def open_client(self):
         return httpx.AsyncClient(timeout=self.config.model_timeout_seconds,
-                                 follow_redirects=False, transport=self.transport)
+                                 follow_redirects=False, transport=self.transport,trust_env=self.config.model_trust_env)
 
     @asynccontextmanager
     async def session(self):

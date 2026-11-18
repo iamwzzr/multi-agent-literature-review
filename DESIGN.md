@@ -429,3 +429,8 @@ ADR-0
 10.Crossref REST API
 11.arXiv API Manual
 12.DataCite REST API
+
+
+## 2026-11-18 审核协议实现补充
+
+后端已增加逐批审核边界校验与输入/输出审计记录；完整说明见 [后端审核优化记录](docs/BACKEND_REVIEW_OPTIMIZATION_2026-11-18.md)。写作者 status、Reviewer 执行状态/结论和程序 task_status 分别表达：有效且完整核查的“证据不足”可以是已完成的答案，原始 partial 标签保留为 producer_status；失败、未检查项、必要缺口、引用或版本不匹配均不能通过。新增 bibliography 按文档版本归组，兼容保留证据片段编号。

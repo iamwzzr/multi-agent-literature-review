@@ -27,6 +27,8 @@ class Paper(StrictModel):
 
 
 class Evidence(StrictModel):
+    evidenceId: str | None = None
+    location: dict | None = None
     paper: Paper
     page: int = Field(ge=1)
     excerpt: str = Field(min_length=1, max_length=10000)

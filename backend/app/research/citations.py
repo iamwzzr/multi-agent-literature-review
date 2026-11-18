@@ -1,5 +1,6 @@
 """Translate audited internal IDs to the existing UI's numeric citation protocol."""
 import re
+import html
 
 from ..errors import AppError
 
@@ -11,6 +12,7 @@ BRACKETED = re.compile(r'\[\[?([^\[\]\n]+)\]\]?')
 
 def validate_citations(text, declared_ids, registered_ids):
     """Inline citations may only refer to the claim's declared evidence."""
+    text = html.unescape(text)
     mentioned = set(EVIDENCE_ID.findall(text))
     if mentioned - set(registered_ids) or mentioned - set(declared_ids):
         raise AppError('UNKNOWN_EVIDENCE', '正文引用了未登记或未关联到本条主张的证据，已拒绝交付。', 422)
@@ -34,6 +36,8 @@ def display_citations(text, references):
             return ''.join(number(item) for item in dict.fromkeys(identifiers))
         return match[0]
 
+    text = html.unescape(text)
+    text = re.sub(r'\[\[?evidence-\.\.\.\]\]?', '内部证据编号', text)
     text = BRACKETED.sub(brackets, text)
     text = re.sub(r'`(evidence-[A-Za-z0-9_-]+)`', lambda m: number(m[1]), text)
     return EVIDENCE_ID.sub(lambda m: number(m[0]), text)

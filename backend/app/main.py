@@ -297,11 +297,42 @@ def create_app(config: Settings | None = None, model=None, research_agents=None)
         folder.mkdir(parents=True,exist_ok=True)
         path=folder/(hashlib.sha256(content).hexdigest()+'.pdf')
         if not path.exists(): path.write_bytes(content)
-        await parse_pdf(path, config)
+        parsed=await parse_pdf(path, config)
+        if not any(len(' '.join(page.split()))>=20 for page in parsed['pages']):
+            raise AppError('PDF_NO_EXTRACTABLE_TEXT', 'PDF 没有足够的可提取文本；空白文档不可用于研究，扫描件需要先进行 OCR。',422)
         ws=Workspace(store,project_id,'upload')
-        file_id=identifier('upload')
-        ws.save('upload',{'kind':'upload','path':str(path),'content_hash':hashlib.sha256(content).hexdigest()},file_id)
-        return {'file_id':file_id}
+        digest=hashlib.sha256(content).hexdigest()
+        file_id='upload-'+digest
+        ws.save('upload',{'kind':'upload','path':str(path),'content_hash':digest},file_id)
+        return {'file_id':file_id,'sha256':digest,'text_pages':sum(bool(page.strip()) for page in parsed['pages'])}
+
+    @app.get('/api/v2/projects/{project_id}/evidence/{evidence_id}/location')
+    async def evidence_location(project_id: str, evidence_id: str):
+        from pathlib import Path
+        import hashlib
+        from .research.workspace import Workspace
+        from .research.anchors import locate_quote
+        from .library import digest_file, parse_pdf
+        ws=Workspace(store,project_id,'read-location')
+        card=ws.get(evidence_id)
+        if card.get('evidence_id')!=evidence_id:
+            raise AppError('OBJECT_NOT_FOUND','当前项目中不存在该证据。',404)
+        doc=ws.get(card['document_id'])
+        path=Path(doc['path']).resolve()
+        allowed=(config.runtime_dir/'originals'/hashlib.sha256(project_id.encode()).hexdigest()).resolve()
+        if not path.is_relative_to(allowed) or not path.is_file():
+            raise AppError('OBJECT_NOT_FOUND','原始文档不可读取。',404)
+        if await asyncio.to_thread(digest_file,path)!=doc['content_hash']:
+            raise AppError('ORIGINAL_CHANGED','原始文档版本已变化，拒绝定位。',409)
+        parsed=await parse_pdf(path,config)
+        page=card['location']['page']
+        if not 1<=page<=len(parsed['pages']):
+            raise AppError('EVIDENCE_ORIGINAL_MISMATCH','引用页码超出文档范围。',409)
+        anchor=locate_quote(parsed['pages'][page-1],card['quote'],card['location'].get('start'))
+        return {'evidence_id':evidence_id,'document_id':doc['document_id'],
+            'page':page,'page_basis':'pdf-page-1-based','content_hash':doc['content_hash'],
+            'parser_version':doc['parser_version'],**anchor,
+            'supports_pdf_coordinates':False}
 
     @app.get('/api/v2/projects/{project_id}/objects/{object_id}')
     async def research_object(project_id: str, object_id: str):
