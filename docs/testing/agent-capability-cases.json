@@ -1,0 +1,78 @@
+{
+  "cases": [
+    {
+      "id": "L01",
+      "capability": "单篇概念与精准引用",
+      "question": "请依据 Lewis 等人的原始 RAG 论文解释 RAG-Sequence 与 RAG-Token 如何处理检索文档。用不超过三条主张，并引用两种模型的定义。",
+      "retrieval_query": "RAG-Sequence Model RAG-Token Model document marginalization Lewis",
+      "expected": ["RAG-Sequence 对整段输出使用同一潜变量文档后做边缘化。", "RAG-Token 在各词元位置对文档边缘化。"],
+      "must_not": ["把 RAG-Token 的按词元边缘化写成每个词元都重新调用检索器。"],
+      "evidence": [{"key": "rag", "page": 3, "anchors": ["RAG-Sequence Model", "RAG-Token Model"]}]
+    },
+    {
+      "id": "L02",
+      "capability": "三篇机制比较",
+      "question": "比较原始 RAG、Self-RAG 和 FLAREdirect 的检索触发方式，给一个对照表并为每种方法引用自己的原文。说明比较的范围。",
+      "retrieval_query": "RAG-Token Self-RAG critique reflection tokens FLARE low probability temporary next sentence retrieval",
+      "subquestions": [
+        "RAG-Sequence and RAG-Token retrieval query and document selection",
+        "Self-RAG retrieve reflection token critique",
+        "FLAREdirect next sentence retrieval confidence"
+      ],
+      "expected": ["原始 RAG 依据输入检索。", "Self-RAG 在推理中用检索反思标记按需检索。", "FLAREdirect 根据临时下一句的低置信词元触发检索，再生成该句。"],
+      "must_not": ["用某一篇论文替代另外两篇的原文。", "根据不同实验条件下的分数作全局优劣排名。"],
+      "evidence": [{"key": "rag", "page": 3, "anchors": ["RAG-Sequence Model"]}, {"key": "selfrag", "page": 4, "anchors": ["reflection tokens", "critic"]}, {"key": "flare", "page": 4, "anchors": ["temporary next sentence", "confidence"]}]
+    },
+    {
+      "id": "L03",
+      "capability": "新增多跳基准的证据综合",
+      "question": "MuSiQue 与 MultiHop-RAG 各用什么设计来检查多跳能力？请分别引用两篇的原文，说明两者的证据和问题构造各有什么侧重。",
+      "retrieval_query": "MuSiQue-Full connected reasoning single-hop question composition MultiHop-RAG English news knowledge base supporting evidence",
+      "subquestions": [
+        "MuSiQue-Full connected reasoning question composition",
+        "MultiHop-RAG benchmark news article knowledge base supporting evidence"
+      ],
+      "expected": ["MuSiQue 将相连的单跳问题组合为需要串联推理的题目，Full 版包括不可回答对照。", "MultiHop-RAG 用英文新闻构成知识库，并为多跳查询提供支撑证据和答案。"],
+      "must_not": ["把两者的数据来源或问题构造互换。", "以零散评测结果宣称某方法跨数据集通用。"],
+      "evidence": [{"key": "musique", "page": 1, "anchors": ["connected reasoning", "MuSiQue-Full"]}, {"key": "multihop-rag", "page": 1, "anchors": ["English news", "supporting evidence"]}]
+    },
+    {
+      "id": "L04",
+      "capability": "引用与主张级评估",
+      "question": "引文是否充分与检索器是否找到了关键主张是两个不同问题。请用 ALCE 和 RAGChecker 的定义说明各自如何测量，引用原文定义页。",
+      "retrieval_query": "ALCE citation recall citation precision entailment RAGChecker claim recall retrieved chunks",
+      "subquestions": ["ALCE citation recall citation precision entailment", "RAGChecker claim recall and faithfulness"],
+      "expected": ["ALCE 的 citation recall 检查输出陈述是否得到所引段落支持，citation precision 检查引文是否有助于支持陈述。", "RAGChecker 的检索 claim recall 衡量参考答案中的主张有多少能由检索片段支持。"],
+      "must_not": ["把引用编号存在当作支持关系证据。", "把两种 recall 当成可直接等同的百分比。"],
+      "evidence": [{"key": "alce", "page": 4, "anchors": ["citation recall", "citation precision"]}, {"key": "ragchecker", "page": 5, "anchors": ["claim recall", "faithfulness"]}]
+    },
+    {
+      "id": "L05",
+      "capability": "相同缩写的实体辨别",
+      "question": "库里有两篇使用 CRAG 缩写的不同论文。请按篇指出题名、用途和一项关键设计，并给各自的引用。",
+      "retrieval_query": "Corrective Retrieval Augmented Generation retrieval evaluator CRAG Comprehensive RAG Benchmark five domains",
+      "subquestions": ["Corrective Retrieval Augmented Generation retrieval evaluator", "CRAG Comprehensive RAG Benchmark five domains"],
+      "expected": ["Yan 等人的 Corrective Retrieval Augmented Generation 用检索评估器判断已检索文档的质量。", "Yang 等人的 Comprehensive RAG Benchmark 是评测数据与任务，覆盖五个领域和八类问题。"],
+      "must_not": ["把检索评估器归给 benchmark 论文。", "把两篇算作同一篇研究或沿用同一个引文。"],
+      "evidence": [{"key": "crag", "page": 1, "anchors": ["retrieval evaluator"]}, {"key": "crag-benchmark", "page": 1, "anchors": ["five domains", "eight question categories"]}]
+    },
+    {
+      "id": "L06",
+      "capability": "证据不足时限制结论",
+      "question": "仅从原始 RAG、Self-RAG 和 FLARE 三篇原论文，能否给出同一模型、硬件和数据集下每次回答的人民币成本？请指出哪些信息无法从本次资料确认。",
+      "subquestions": ["RAG Self-RAG FLARE inference cost same model hardware datasets"],
+      "expected": ["判断以本次可核实的原论文和实验条件为范围。", "在缺少同条件、同计价口径开销数据时明确证据不足，保留未知。"],
+      "must_not": ["填入论文未报告的人民币金额或凭空换算。", "把检索未找到扩张为整个研究领域都没有数据。"],
+      "evidence": []
+    },
+    {
+      "id": "L07",
+      "capability": "大库深处的文献与端到端原文",
+      "question": "WebThinker 的 Deep Web Explorer 与 Autonomous Think-Search-and-Draft 各负责什么？请引用两者的原文说明。",
+      "retrieval_query": "WebThinker Deep Web Explorer autonomous think-search-and-draft",
+      "expected": ["Deep Web Explorer 让模型搜索并通过网页链接导航和提取信息。", "Think-Search-and-Draft 把推理、信息收集和报告写作穿插执行。"],
+      "must_not": ["用其他网页搜索 Agent 或模型训练论文替代 WebThinker 的原文。"],
+      "evidence": [{"key": "webthinker", "page": 2, "anchors": ["Deep Web Explorer", "Think-Search-and-Draft"]}]
+    }
+  ]
+}

@@ -79,6 +79,8 @@ See [Windows / Python 3.14 setup](docs/LOCAL_SETUP.md). The backend implements t
 
 ## Three-agent backend v1
 
+The [100-paper corpus and capability evaluation](docs/testing/AGENT_CAPABILITY_100.md) includes a frozen paper manifest, an offline retrieval check, and a real-model evaluation entry point. For a full-library review, select `data/papers-100` as the knowledge path.
+
 Implementation and API: [THREE_AGENT_V1.md](docs/THREE_AGENT_V1.md). Design baseline: [DESIGN.md](DESIGN.md). Actual acceptance and unexecuted experiments: [EVALUATION.md](EVALUATION.md). The backend now defaults to three LangChain agents; source modes are local/online/hybrid. Frontend source files were not modified for this upgrade.
 
 Actual validation: 69 backend tests passed and a focused real-model task completed with review pass. Several low-budget multi-paper samples remain partial; full product acceptance and comparative quality/cost experiments are pending. See [the test report](docs/BACKEND_TEST_REPORT_2026-11-14.md) and [frontend integration / local corpus preparation](docs/FRONTEND_V1_HANDOFF.md).

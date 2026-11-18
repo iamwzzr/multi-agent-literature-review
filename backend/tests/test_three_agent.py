@@ -13,7 +13,7 @@ from app.research.workspace import Workspace, Meter
 from app.schemas import ReviewRequest
 from app.store import Store
 from app.library import Library, resolve_project
-from test_business import setup, local_client, ScriptedModel, output, events
+from test_business import setup, local_client, make_pdf, ScriptedModel, output, events
 from app.main import create_app
 
 
@@ -138,6 +138,70 @@ def test_upload_and_reference(setup):
         payload['uploaded_file_ids']=[fid]
         payload['project']['knowledgePaths']=[]
         assert events(client.post('/api/v2/reviews/stream',json=payload))[-1]['taskStatus']=='completed'
+
+
+def test_review_selects_relevant_pdf_from_beyond_forty_indexed_papers(setup):
+    config, payload, papers = setup
+    for number in range(41):
+        make_pdf(papers / f'background-{number:02}.pdf', f'Background discussion in unrelated appendix {number}.')
+    target = papers / 'z-target.pdf'
+    make_pdf(target, 'ZetaCorpusMarker identifies the relevant original evidence for this review.')
+    payload['question'] = 'ZetaCorpusMarker'
+    payload['research_budget'] = {'documents': 1}
+    trio = Trio()
+    with local_client(create_app(config, ScriptedModel(), research_agents=trio)) as client:
+        response = client.post('/api/v2/reviews/stream', json=payload)
+        assert events(response)[-1]['taskStatus'] == 'completed'
+        run = client.get('/api/v1/runs/' + response.headers['x-run-id']).json()
+        selection, = [entry['payload'] for entry in run['artifacts']
+                      if entry['kind'] == 'local_library_selection']
+        assert selection['strategy'] == 'bm25'
+        assert selection['indexed_papers'] == 43
+        assert len(selection['selected_library_papers']) == selection['admitted_local_papers'] == 1
+        evidence, = run['report']['evidence']
+        assert evidence['page'] == 1
+        assert 'ZetaCorpusMarker' in evidence['excerpt']
+        cited = client.get('/api/v1/papers/pdf', params={
+            'projectId': payload['project']['id'], 'paperId': evidence['paper']['id']})
+        assert cited.content == target.read_bytes()
+        assert trio.roles == ['researcher', 'reporter', 'reviewer']
+
+
+def test_parallel_hybrid_fetches_share_the_remaining_document_slot(setup, monkeypatch):
+    config, payload, papers = setup
+    candidates = [
+        {'paper_id': f'online-{n}', 'title': f'Online evidence {n}',
+         'source': 'online', 'identity_status': 'verified'} for n in range(2)
+    ]
+    fetched = []
+
+    async def discover(self, query, mode):
+        return candidates, []
+
+    async def fetch(self, paper):
+        await asyncio.sleep(0)
+        fetched.append(paper['paper_id'])
+        return {'document_id': paper['paper_id'], 'pages': ['Online evidence text for testing.']}, None
+
+    class ParallelFetches(Trio):
+        async def invoke(self, role, role_payload, schema, tools, meter):
+            if role == 'researcher':
+                by_name = {tool.name: tool for tool in tools}
+                await by_name['search_verified_papers'].ainvoke({'query': 'retrieval'})
+                results = await asyncio.gather(*[
+                    by_name['fetch_paper_content'].ainvoke({'paper_id': p['paper_id']}) for p in candidates
+                ])
+                assert sorted(r['status'] for r in results) == ['error', 'ok']
+                assert next(r for r in results if r['status'] == 'error')['error']['code'] == 'DOCUMENT_BUDGET'
+            return await super().invoke(role, role_payload, schema, tools, meter)
+
+    monkeypatch.setattr(AcademicSources, 'discover', discover)
+    monkeypatch.setattr(AcademicSources, 'fetch', fetch)
+    payload.update(source_mode='hybrid', research_budget={'documents': 2})
+    with local_client(create_app(config, ScriptedModel(), research_agents=ParallelFetches())) as client:
+        response = client.post('/api/v2/reviews/stream', json=payload)
+        assert events(response)[-1]['taskStatus'] == 'completed'
+    assert len(fetched) == 1
 
 
 def test_service_empty_error_and_identity_conflict(setup,monkeypatch):

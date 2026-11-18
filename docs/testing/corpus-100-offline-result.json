@@ -1,0 +1,514 @@
+{
+  "paid_model_calls": 0,
+  "http_model": "scripted",
+  "retrieval": {
+    "indexed_papers": 100,
+    "pages": 2092,
+    "passages": 6814,
+    "cold_index_seconds": 25.28,
+    "old_limit_error": "LIBRARY_TOO_LARGE",
+    "cases": [
+      {
+        "case": "L01",
+        "candidate_papers": [
+          "rgb",
+          "selfrag",
+          "rag",
+          "fid",
+          "realm",
+          "ance",
+          "ares",
+          "rag-vs-long-context",
+          "longllmlingua",
+          "speculative-rag"
+        ],
+        "gold_papers_found": 1,
+        "gold_papers_found_question_only": 1,
+        "gold_papers_total": 1,
+        "question_top_6": {
+          "hits": [
+            {
+              "paper": "rgb",
+              "page": 4
+            },
+            {
+              "paper": "selfrag",
+              "page": 6
+            },
+            {
+              "paper": "rag",
+              "page": 3
+            },
+            {
+              "paper": "fid",
+              "page": 3
+            },
+            {
+              "paper": "realm",
+              "page": 3
+            },
+            {
+              "paper": "ance",
+              "page": 7
+            }
+          ],
+          "gold_pages_found": 1,
+          "gold_pages_total": 1
+        },
+        "english_terms_top_6": {
+          "hits": [
+            {
+              "paper": "rag",
+              "page": 6
+            },
+            {
+              "paper": "fid",
+              "page": 3
+            },
+            {
+              "paper": "realm",
+              "page": 3
+            },
+            {
+              "paper": "dsp",
+              "page": 8
+            },
+            {
+              "paper": "selfrag",
+              "page": 4
+            },
+            {
+              "paper": "splade-v2",
+              "page": 2
+            }
+          ],
+          "gold_pages_found": 0,
+          "gold_pages_total": 1
+        }
+      },
+      {
+        "case": "L02",
+        "candidate_papers": [
+          "selfrag",
+          "rag",
+          "flare",
+          "rag-robustness-survey",
+          "rag-fusion",
+          "speculative-rag",
+          "ares",
+          "doc2query",
+          "rag-vs-long-context",
+          "simpleqa"
+        ],
+        "gold_papers_found": 3,
+        "gold_papers_found_question_only": 2,
+        "gold_papers_total": 3,
+        "question_top_6": {
+          "hits": [
+            {
+              "paper": "selfrag",
+              "page": 2
+            },
+            {
+              "paper": "rag-robustness-survey",
+              "page": 13
+            },
+            {
+              "paper": "flare",
+              "page": 6
+            },
+            {
+              "paper": "condenser",
+              "page": 6
+            },
+            {
+              "paper": "multihop-rag",
+              "page": 3
+            },
+            {
+              "paper": "speculative-rag",
+              "page": 7
+            }
+          ],
+          "gold_pages_found": 0,
+          "gold_pages_total": 3
+        },
+        "english_terms_top_6": {
+          "hits": [
+            {
+              "paper": "selfrag",
+              "page": 4
+            },
+            {
+              "paper": "flare",
+              "page": 2
+            },
+            {
+              "paper": "selfcheckgpt",
+              "page": 3
+            },
+            {
+              "paper": "speculative-rag",
+              "page": 5
+            },
+            {
+              "paper": "rag-vs-long-context",
+              "page": 5
+            },
+            {
+              "paper": "longllmlingua",
+              "page": 4
+            }
+          ],
+          "gold_pages_found": 1,
+          "gold_pages_total": 3
+        }
+      },
+      {
+        "case": "L03",
+        "candidate_papers": [
+          "multihop-rag",
+          "musique",
+          "strategyqa",
+          "selfrag",
+          "drqa",
+          "gophercite",
+          "rgb",
+          "ircot",
+          "kilt",
+          "longbench"
+        ],
+        "gold_papers_found": 2,
+        "gold_papers_found_question_only": 2,
+        "gold_papers_total": 2,
+        "question_top_6": {
+          "hits": [
+            {
+              "paper": "multihop-rag",
+              "page": 5
+            },
+            {
+              "paper": "musique",
+              "page": 1
+            },
+            {
+              "paper": "selfrag",
+              "page": 6
+            },
+            {
+              "paper": "rgb",
+              "page": 4
+            },
+            {
+              "paper": "longbench",
+              "page": 15
+            },
+            {
+              "paper": "gophercite",
+              "page": 18
+            }
+          ],
+          "gold_pages_found": 1,
+          "gold_pages_total": 2
+        },
+        "english_terms_top_6": {
+          "hits": [
+            {
+              "paper": "musique",
+              "page": 4
+            },
+            {
+              "paper": "multihop-rag",
+              "page": 1
+            },
+            {
+              "paper": "longbench",
+              "page": 4
+            },
+            {
+              "paper": "strategyqa",
+              "page": 2
+            },
+            {
+              "paper": "gophercite",
+              "page": 10
+            },
+            {
+              "paper": "orqa",
+              "page": 6
+            }
+          ],
+          "gold_pages_found": 1,
+          "gold_pages_total": 2
+        }
+      },
+      {
+        "case": "L04",
+        "candidate_papers": [
+          "alce",
+          "ragchecker",
+          "rgb",
+          "generative-search-verifiability",
+          "fever",
+          "factcc",
+          "longbench",
+          "summary-faithfulness",
+          "selfrag",
+          "questeval"
+        ],
+        "gold_papers_found": 2,
+        "gold_papers_found_question_only": 2,
+        "gold_papers_total": 2,
+        "question_top_6": {
+          "hits": [
+            {
+              "paper": "alce",
+              "page": 9
+            },
+            {
+              "paper": "rgb",
+              "page": 4
+            },
+            {
+              "paper": "ragchecker",
+              "page": 1
+            },
+            {
+              "paper": "longbench",
+              "page": 15
+            },
+            {
+              "paper": "selfrag",
+              "page": 7
+            },
+            {
+              "paper": "flare",
+              "page": 2
+            }
+          ],
+          "gold_pages_found": 0,
+          "gold_pages_total": 2
+        },
+        "english_terms_top_6": {
+          "hits": [
+            {
+              "paper": "alce",
+              "page": 9
+            },
+            {
+              "paper": "ragchecker",
+              "page": 5
+            },
+            {
+              "paper": "generative-search-verifiability",
+              "page": 3
+            },
+            {
+              "paper": "minicheck",
+              "page": 5
+            },
+            {
+              "paper": "fever",
+              "page": 5
+            },
+            {
+              "paper": "ra-dit",
+              "page": 7
+            }
+          ],
+          "gold_pages_found": 1,
+          "gold_pages_total": 2
+        }
+      },
+      {
+        "case": "L05",
+        "candidate_papers": [
+          "crag-benchmark",
+          "crag",
+          "speculative-rag",
+          "ragbench",
+          "rag-robustness-survey",
+          "ragchecker",
+          "iter-retgen",
+          "deepresearch-bench",
+          "rag-knowledge-survey",
+          "rag-survey"
+        ],
+        "gold_papers_found": 2,
+        "gold_papers_found_question_only": 2,
+        "gold_papers_total": 2,
+        "question_top_6": {
+          "hits": [
+            {
+              "paper": "crag-benchmark",
+              "page": 3
+            },
+            {
+              "paper": "crag",
+              "page": 9
+            },
+            {
+              "paper": "rag-robustness-survey",
+              "page": 16
+            },
+            {
+              "paper": "speculative-rag",
+              "page": 6
+            },
+            {
+              "paper": "rag-knowledge-survey",
+              "page": 33
+            },
+            {
+              "paper": "rag-survey",
+              "page": 15
+            }
+          ],
+          "gold_pages_found": 0,
+          "gold_pages_total": 2
+        },
+        "english_terms_top_6": {
+          "hits": [
+            {
+              "paper": "crag-benchmark",
+              "page": 1
+            },
+            {
+              "paper": "crag",
+              "page": 9
+            },
+            {
+              "paper": "ragbench",
+              "page": 1
+            },
+            {
+              "paper": "rag-robustness-survey",
+              "page": 6
+            },
+            {
+              "paper": "ragchecker",
+              "page": 6
+            },
+            {
+              "paper": "speculative-rag",
+              "page": 6
+            }
+          ],
+          "gold_pages_found": 1,
+          "gold_pages_total": 2
+        }
+      },
+      {
+        "case": "L06",
+        "candidate_papers": [
+          "rgb",
+          "selfrag",
+          "rag-vs-long-context",
+          "flare",
+          "speculative-rag",
+          "longbench",
+          "minicheck",
+          "rag-robustness-survey",
+          "multihop-rag",
+          "crag"
+        ],
+        "gold_papers_found": 0,
+        "gold_papers_found_question_only": 0,
+        "gold_papers_total": 0
+      },
+      {
+        "case": "L07",
+        "candidate_papers": [
+          "webthinker",
+          "speculative-rag",
+          "webarena",
+          "search-r1",
+          "research-rl",
+          "agent-survey",
+          "deepresearch-bench",
+          "r1-searcher",
+          "complex-web-questions",
+          "colbert"
+        ],
+        "gold_papers_found": 1,
+        "gold_papers_found_question_only": 1,
+        "gold_papers_total": 1,
+        "question_top_6": {
+          "hits": [
+            {
+              "paper": "webthinker",
+              "page": 4
+            },
+            {
+              "paper": "speculative-rag",
+              "page": 5
+            },
+            {
+              "paper": "webarena",
+              "page": 9
+            },
+            {
+              "paper": "search-r1",
+              "page": 2
+            },
+            {
+              "paper": "research-rl",
+              "page": 5
+            },
+            {
+              "paper": "agent-survey",
+              "page": 1
+            }
+          ],
+          "gold_pages_found": 0,
+          "gold_pages_total": 1
+        },
+        "english_terms_top_6": {
+          "hits": [
+            {
+              "paper": "webthinker",
+              "page": 4
+            },
+            {
+              "paper": "speculative-rag",
+              "page": 5
+            },
+            {
+              "paper": "webarena",
+              "page": 9
+            },
+            {
+              "paper": "search-r1",
+              "page": 2
+            },
+            {
+              "paper": "research-rl",
+              "page": 5
+            },
+            {
+              "paper": "agent-survey",
+              "page": 1
+            }
+          ],
+          "gold_pages_found": 0,
+          "gold_pages_total": 1
+        }
+      }
+    ]
+  },
+  "http": {
+    "paper": "webthinker",
+    "alphabetical_position": 99,
+    "pdf_page": 4,
+    "roles": [
+      "researcher",
+      "reporter",
+      "reviewer"
+    ],
+    "task_status": "completed",
+    "source_matches_manifest": true,
+    "review_budget": 10,
+    "admitted_papers": 10,
+    "warm_review_seconds": 5.79
+  }
+}

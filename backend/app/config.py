@@ -28,9 +28,9 @@ class Settings(BaseSettings):
     max_concurrent_reviews: int = Field(default=2, ge=1, le=8)
     max_request_bytes: int = Field(default=2_000_000, ge=1024)
     max_pdf_bytes: int = Field(default=30_000_000, ge=1024)
-    max_papers: int = Field(default=40, ge=1, le=200)
+    max_papers: int = Field(default=100, ge=1, le=200)
     max_pages_per_pdf: int = Field(default=300, ge=1, le=2000)
-    max_total_pages: int = Field(default=1500, ge=1, le=10000)
+    max_total_pages: int = Field(default=4000, ge=1, le=10000)
     pdf_timeout_seconds: float = Field(default=45, ge=1, le=180)
     max_prompt_chars: int = Field(default=65000, ge=8000, le=200000)
     frontend_origin: str = "http://localhost:5173"

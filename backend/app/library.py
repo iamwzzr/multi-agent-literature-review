@@ -7,6 +7,7 @@ import sys
 import subprocess
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from itertools import zip_longest
 from pathlib import Path
 
 from .config import Settings
@@ -238,6 +239,17 @@ class SearchIndex:
                 self.postings[word].append((i, count))
         average = sum(lengths) / max(1, len(lengths)) or 1
         self.norms = [1.2 * (.25 + .75 * length / average) for length in lengths]
+
+    def rank_papers(self, queries):
+        # The first hit for each paper precedes repeated hits within a query.
+        # Interleave the rankings so each subquestion contributes candidates.
+        ranked = (self.search(query, len(self.document_lengths)) for query in dict.fromkeys(queries))
+        return list(dict.fromkeys(
+            hit['paper']['id']
+            for rank in zip_longest(*ranked)
+            for hit in rank
+            if hit is not None
+        ))
 
     def search(self, query: str, limit=6, document_ids=None, paper_ids=None, content_region=None):
         if limit <= 0:

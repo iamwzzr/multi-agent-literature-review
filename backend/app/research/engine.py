@@ -43,23 +43,16 @@ class ThreeAgentWorkflow:
             async with asyncio.timeout(budget.seconds):
                 yield phase('研究员读取资料', ['search'], summary='三 Agent：Researcher 研究；Reporter 报告；Reviewer 审核。')
                 if request.source_mode != 'online':
-                    meter.charge('tool', 'index_local')
-                    local_chunks, warnings = await self.library.index(request.project.id, scope)
+                    selection, warnings = await self.select_local_sources(
+                        request, scope, papers, documents, chunks, sources, ws, meter
+                    )
                     limitations.extend(warnings)
-                    groups = {}
-                    for chunk in local_chunks:
-                        groups.setdefault(chunk['paper']['id'], []).append(chunk)
-                    if len(groups) > budget.documents:
-                        raise AppError('BUDGET_EXHAUSTED', '上传资料超过本次文档预算。', 409)
-                    for paper_id, group in groups.items():
-                        original = await asyncio.to_thread(self.library.source, request.project.id, paper_id)
-                        await self.add_local(original, group[0]['paper'], papers, documents, chunks, sources, request, ws, meter)
-                    for file_id in request.uploaded_file_ids:
-                        upload = ws.get(file_id)
-                        if upload.get('kind') != 'upload':
-                            raise AppError('OBJECT_NOT_FOUND', '上传对象无效。', 404)
-                        path = Path(upload['path'])
-                        await self.add_local(path, None, papers, documents, chunks, sources, request, ws, meter)
+                    ws.save('local_library_selection', selection)
+                    if selection['strategy'] == 'bm25':
+                        scope_note = (f"在本地索引的 {selection['indexed_papers']} 篇可检索文献中，"
+                                      f"本轮选入 {len(selection['selected_library_papers'])} 篇目录文献供全文核查。")
+                        task['local_library_scope'] = scope_note
+                        yield phase('本地文献筛选完成', ['search'], summary=scope_note)
                 if request.source_mode == 'online' or (request.source_mode == 'hybrid' and not chunks):
                     query = request.online_query or request.question
                     candidates, gaps = await sources.discover(query, request.source_mode)
@@ -183,6 +176,7 @@ class ThreeAgentWorkflow:
                     return {'status':'ok' if claim else 'error','data':claim,'error':None if claim else {'code':'OBJECT_NOT_FOUND'}}
 
                 discovered={p['paper_id']:p for p in papers}
+                online_admission = asyncio.Lock()
                 @tool
                 async def search_verified_papers(query: str) -> dict:
                     """Search authoritative online paper records under the immutable task source policy. Return each candidate's verification status."""
@@ -200,17 +194,20 @@ class ThreeAgentWorkflow:
                     candidate=discovered.get(paper_id)
                     if request.source_mode=='local' or not candidate or candidate.get('source')!='online' or candidate['identity_status']!='verified':
                         return {'status':'error','data':None,'error':{'code':'SOURCE_POLICY_DENIED'}}
-                    if len(papers)>=budget.documents:
-                        return {'status':'error','data':None,'error':{'code':'DOCUMENT_BUDGET'}}
-                    if any(p['paper_id']==paper_id for p in papers):
-                        return {'status':'ok','data':candidate,'error':None}
-                    document,error=await sources.fetch(candidate)
-                    if error:
-                        return {'status':'error','data':None,'error':{'code':error}}
-                    papers.append(candidate);documents[document['document_id']]=document
-                    self.add_chunks(document,candidate,chunks)
-                    index=await asyncio.to_thread(SearchIndex,chunks);by_span={c['id']:c for c in chunks}
-                    return {'status':'ok','data':{k:v for k,v in document.items() if k not in ('pages','path')},'error':None}
+                    async with online_admission:
+                        if len(papers)>=budget.documents:
+                            return {'status':'error','data':None,'error':{'code':'DOCUMENT_BUDGET'}}
+                        if any(p['paper_id']==paper_id for p in papers):
+                            return {'status':'ok','data':candidate,'error':None}
+                        document,error=await sources.fetch(candidate)
+                        if error:
+                            return {'status':'error','data':None,'error':{'code':error}}
+                        papers.append(candidate)
+                        documents[document['document_id']]=document
+                        self.add_chunks(document,candidate,chunks)
+                        index=await asyncio.to_thread(SearchIndex,chunks)
+                        by_span={c['id']:c for c in chunks}
+                        return {'status':'ok','data':{k:v for k,v in document.items() if k not in ('pages','path')},'error':None}
 
                 researcher_tools=[search_document,read_original,record_evidence,query_evidence,list_project_papers,get_paper_record,get_verification_log]
                 if request.source_mode!='local': researcher_tools.extend([search_verified_papers,fetch_paper_content])
@@ -454,6 +451,50 @@ class ThreeAgentWorkflow:
         ws.save('delivery', self.report)
         for event in self.deliver():
             yield event
+
+    async def select_local_sources(self, request, scope, papers, documents, chunks, sources, ws, meter):
+        meter.charge('tool', 'index_local')
+        local_chunks, warnings = await self.library.index(request.project.id, scope)
+        indexed_papers = {chunk['paper']['id']: chunk['paper'] for chunk in local_chunks}
+        uploads = []
+        for file_id in request.uploaded_file_ids:
+            upload = ws.get(file_id)
+            if upload.get('kind') != 'upload':
+                raise AppError('OBJECT_NOT_FOUND', '上传对象无效。', 404)
+            uploads.append(Path(upload['path']))
+
+        limit = meter.limit.documents
+        shortlist = len(indexed_papers) + len(uploads) > limit
+        candidates = list(indexed_papers)
+        if shortlist:
+            # Explicit uploads come first when the directory cannot fit.
+            for path in uploads:
+                await self.add_local(path, None, papers, documents, chunks, sources, request, ws, meter)
+            uploads = []
+            if request.source_mode == 'hybrid' and len(papers) + 1 < limit:
+                limit -= 1
+            if len(papers) < limit and candidates:
+                meter.charge('tool', 'search_local_library')
+                queries = [request.question, *(entry['question'] for entry in request.subquestions)]
+                candidates = await asyncio.to_thread(lambda: SearchIndex(local_chunks).rank_papers(queries))
+
+        before_directory = len(papers)
+        for paper_id in candidates:
+            if len(papers) >= limit:
+                break
+            path = await asyncio.to_thread(self.library.source, request.project.id, paper_id)
+            await self.add_local(path, indexed_papers[paper_id], papers, documents, chunks, sources, request, ws, meter)
+        selected = [{'paper_id': paper['paper_id'], 'title': paper['title']} for paper in papers[before_directory:]]
+        for path in uploads:
+            await self.add_local(path, None, papers, documents, chunks, sources, request, ws, meter)
+
+        return {
+            'strategy': 'bm25' if shortlist else 'all',
+            'indexed_papers': len(indexed_papers),
+            'selected_library_papers': selected,
+            'admitted_local_papers': len(papers),
+            'document_budget': meter.limit.documents,
+        }, warnings
 
     async def add_local(self, path, metadata, papers, documents, chunks, sources, request, ws, meter):
         meter.charge('tool', 'register_local_document')

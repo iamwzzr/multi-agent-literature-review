@@ -1,5 +1,7 @@
 # 固定论文库与测试入口
 
+100 篇论文库的使用方法和新增能力测试见 [100 篇论文库与 Agent 能力测试](AGENT_CAPABILITY_100.md)。
+
 最新修复与同版复测见 [补证与引用纠错报告](REQUEST_ASSESSMENT_REPORT.md)；模型切换过程见 [Flash 质量报告](FLASH_QUALITY_REPORT.md)。此前 Pro 测试记录仍作为历史基线保留。
 
 主题：检索增强生成（RAG）的检索机制与证据可靠性。

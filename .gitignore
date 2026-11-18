@@ -10,6 +10,7 @@ __pycache__/
 *.pdf
 data/papers/*
 !data/papers/.gitkeep
+data/papers-100/
 data/runtime/*
 !data/runtime/.gitkeep
 
